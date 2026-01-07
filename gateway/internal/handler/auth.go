@@ -61,7 +61,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Domain:   cookieDomain,
 		Secure:   isProd, // True in Prod
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteNoneMode,
 	})
 
 	JSONSuccess(w, map[string]interface{}{
