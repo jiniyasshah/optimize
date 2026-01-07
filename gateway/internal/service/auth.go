@@ -16,6 +16,7 @@ type AuthService struct {
 	jwtSecret []byte
 }
 
+
 func NewAuthService(userRepo core.UserRepository, secret string) *AuthService {
 	return &AuthService{
 		userRepo:  userRepo,
@@ -65,4 +66,11 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	}
 
 	return tokenString, user, nil
+}
+
+func (s *AuthService) GetUser(ctx context.Context, id string) (*core.User, error) {
+	if id == "" {
+		return nil, errors.New("invalid user id")
+	}
+	return s.userRepo.GetByID(ctx, id)
 }

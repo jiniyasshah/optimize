@@ -71,12 +71,30 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) CheckAuth(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("user_id").(string)
-	JSONSuccess(w, map[string]string{
-		"status": "authenticated",
-		"user_id": userID,
+	userID, ok := r.Context().Value("user_id").(string)
+	if !ok {
+		JSONError(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := h.svc.GetUser(r.Context(), userID)
+	
+	userName := "Unknown"
+	if err == nil && user != nil {
+		userName = user.Name
+	}
+
+	// 3. Send the response exactly as Frontend expects
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"authenticated": true,
+		"user": map[string]string{
+			"id":   userID,
+			"name": userName,
+		},
 	})
 }
+
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	isProd := os.Getenv("APP_ENV") == "production"
