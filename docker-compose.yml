@@ -16,7 +16,7 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - FRONTEND_URL=${FRONTEND_URL}
       - ORIGIN_URL=${ORIGIN_URL}
-      - MONGO_URI=${MONGO_URI}
+      - MONGO_URI=${MONGO_URI} # <--- Ensure this is your ATLAS URL in .env
       - ML_URL=http://ml_scorer:8000/predict
       # DNS Database Config
       - DNS_DB_HOST=${DNS_DB_HOST}
@@ -24,11 +24,11 @@ services:
       - DNS_DB_PASS=${DNS_DB_PASS}
       - DNS_DB_NAME=${DNS_DB_NAME}
     volumes:
-      - ./gateway/certs:/root/certs
+      - certs_data:/root/certs
     depends_on:
-      - mongo
       - ml_scorer
       - dns_db
+      # [REMOVED] - mongo (Not needed since you use Cloud)
     networks:
       - waf_network
 
@@ -46,20 +46,10 @@ services:
     networks:
       - waf_network
 
-  # ---------------------------
-  # 3. Database (MongoDB)
-  # ---------------------------
-  mongo:
-    image: mongo:6.0
-    container_name: waf_mongo
-    restart: always
-    volumes:
-      - mongo_data:/data/db
-    networks:
-      - waf_network
+  # [REMOVED] Service "mongo" is deleted.
 
   # ---------------------------
-  # 4. DNS Database (MariaDB)
+  # 3. DNS Database (MariaDB)
   # ---------------------------
   dns_db:
     image: mariadb:10.6
@@ -72,13 +62,12 @@ services:
       - MYSQL_PASSWORD=${DNS_DB_PASS}
     volumes:
       - dns_data:/var/lib/mysql
-      # Auto-init schema on first run
       - ./dns/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     networks:
       - waf_network
 
   # ---------------------------
-  # 5. PowerDNS Server
+  # 4. PowerDNS Server
   # ---------------------------
   pdns:
     build:
@@ -91,8 +80,6 @@ services:
       - "53:53/tcp"
     depends_on:
       - dns_db
-    # We override the command to inject secrets from ENV vars
-    # instead of reading them from the static pdns.conf file
     command: >
       pdns_server 
       --daemon=no 
@@ -107,8 +94,9 @@ services:
       - waf_network
 
 volumes:
-  mongo_data:
   dns_data:
+  certs_data:
+  # [REMOVED] mongo_data
 
 networks:
   waf_network:
