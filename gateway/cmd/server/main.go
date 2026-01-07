@@ -65,7 +65,7 @@ func main() {
 	domainHandler := handler.NewDomainHandler(domainRepo, dnsRepo) // Pass dnsRepo
 	ruleHandler := handler.NewRuleHandler(ruleRepo)
 	logHandler := handler.NewLogHandler(logRepo)       // [NEW]
-	systemHandler := handler.NewSystemHandler(mongoClient) // [NEW]
+	systemHandler := handler.NewSystemHandler(mongoClient, cfg.MLURL)
 
 	// 7. Routes
 	mux := http.NewServeMux()
