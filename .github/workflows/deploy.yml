@@ -1,0 +1,29 @@
+name: Auto Deploy to Server
+
+on:
+  push:
+    branches:
+      - v1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-lav1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/waf
+            git fetch origin v1
+            git reset --hard origin/v1
+            docker compose down
+            docker compose up --build -d
+            docker image prune -f
+            docker compose ps

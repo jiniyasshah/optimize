@@ -1,0 +1,115 @@
+services:
+  # ---------------------------
+  # 1. WAF Gateway (Go)
+  # ---------------------------
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: waf_gateway
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - APP_ENV=${APP_ENV}
+      - JWT_SECRET=${JWT_SECRET}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - ORIGIN_URL=${ORIGIN_URL}
+      - MONGO_URI=${MONGO_URI}
+      - ML_URL=http://ml_scorer:8000/predict
+      # DNS Database Config
+      - DNS_DB_HOST=${DNS_DB_HOST}
+      - DNS_DB_USER=${DNS_DB_USER}
+      - DNS_DB_PASS=${DNS_DB_PASS}
+      - DNS_DB_NAME=${DNS_DB_NAME}
+    volumes:
+      - ./gateway/certs:/root/certs
+    depends_on:
+      - mongo
+      - ml_scorer
+      - dns_db
+    networks:
+      - waf_network
+
+  # ---------------------------
+  # 2. ML Scorer (Python)
+  # ---------------------------
+  ml_scorer:
+    build:
+      context: ./ml_scorer
+      dockerfile: Dockerfile
+    container_name: waf_ml_scorer
+    restart: always
+    environment:
+      - WORKERS=2
+    networks:
+      - waf_network
+
+  # ---------------------------
+  # 3. Database (MongoDB)
+  # ---------------------------
+  mongo:
+    image: mongo:6.0
+    container_name: waf_mongo
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - waf_network
+
+  # ---------------------------
+  # 4. DNS Database (MariaDB)
+  # ---------------------------
+  dns_db:
+    image: mariadb:10.6
+    container_name: waf_dns_db
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DNS_DB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${DNS_DB_NAME}
+      - MYSQL_USER=${DNS_DB_USER}
+      - MYSQL_PASSWORD=${DNS_DB_PASS}
+    volumes:
+      - dns_data:/var/lib/mysql
+      # Auto-init schema on first run
+      - ./dns/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - waf_network
+
+  # ---------------------------
+  # 5. PowerDNS Server
+  # ---------------------------
+  pdns:
+    build:
+      context: ./dns
+      dockerfile: Dockerfile
+    container_name: waf_pdns
+    restart: always
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+    depends_on:
+      - dns_db
+    # We override the command to inject secrets from ENV vars
+    # instead of reading them from the static pdns.conf file
+    command: >
+      pdns_server 
+      --daemon=no 
+      --guardian=no 
+      --loglevel=9 
+      --launch=gmysql 
+      --gmysql-host=${DNS_DB_HOST} 
+      --gmysql-user=${DNS_DB_USER} 
+      --gmysql-password=${DNS_DB_PASS} 
+      --gmysql-dbname=${DNS_DB_NAME}
+    networks:
+      - waf_network
+
+volumes:
+  mongo_data:
+  dns_data:
+
+networks:
+  waf_network:
+    driver: bridge
