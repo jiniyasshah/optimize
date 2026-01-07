@@ -83,8 +83,6 @@ func (h *AuthHandler) CheckAuth(w http.ResponseWriter, r *http.Request) {
 	if err == nil && user != nil {
 		userName = user.Name
 	}
-
-	// 3. Send the response exactly as Frontend expects
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"authenticated": true,
