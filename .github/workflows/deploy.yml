@@ -7,7 +7,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-lav1
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -20,10 +20,14 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -euo pipefail
             cd /opt/waf
-            git fetch origin v1
-            git reset --hard origin/v1
-            docker compose down
+
+            git fetch origin main
+            git checkout -f main
+            git reset --hard origin/main
+            git clean -fd
+
             docker compose up --build -d
             docker image prune -f
             docker compose ps

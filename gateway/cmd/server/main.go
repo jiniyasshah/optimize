@@ -109,7 +109,7 @@ func main() {
 	// ---------------------------------------------------------
 
 	hostPolicy := func(ctx context.Context, host string) error {
-		if host == "api.minishield.tech" || host == "dashboard.minishield.tech" {
+		if host == "api.minishield.tech" || host == "test.minishield.tech" {
 			return nil
 		}
 		if _, err := domainRepo.GetByName(ctx, host); err == nil {
