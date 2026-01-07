@@ -21,7 +21,6 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /opt/waf
-
             git fetch origin main
             git checkout -f main
             git reset --hard origin/main

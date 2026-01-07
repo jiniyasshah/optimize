@@ -70,6 +70,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *AuthHandler) CheckAuth(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	JSONSuccess(w, map[string]string{
+		"status": "authenticated",
+		"user_id": userID,
+	})
+}
+
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	isProd := os.Getenv("APP_ENV") == "production"
 	cookieDomain := ""

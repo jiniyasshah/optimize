@@ -14,7 +14,7 @@ import (
 	"web-app-firewall-ml-detection/internal/middleware"
 	"web-app-firewall-ml-detection/internal/proxy"
 	"web-app-firewall-ml-detection/internal/repository/mongo"
-	"web-app-firewall-ml-detection/internal/repository/sql" // [NEW] Import SQL Repo
+	"web-app-firewall-ml-detection/internal/repository/sql"
 	"web-app-firewall-ml-detection/internal/service"
 	"web-app-firewall-ml-detection/internal/utils/limiter"
 
@@ -22,94 +22,91 @@ import (
 )
 
 func main() {
-	// 1. Load Configuration
+	// 1. Config
 	cfg := config.Load()
 	log.Printf("🚀 Starting WAF Gateway in %s mode...", cfg.AppEnv)
 
-	// 2. Connect to Databases
-
-	// A. Connect to MongoDB
-	log.Println("🔌 Connecting to MongoDB...")
+	// 2. Databases
 	mongoClient, err := database.Connect(cfg.MongoURI)
 	if err != nil {
 		log.Fatalf("❌ MongoDB Connection failed: %v", err)
 	}
 	defer mongoClient.Disconnect(context.Background())
 
-	// B. [NEW] Connect to DNS Database (MariaDB/MySQL)
-	log.Println("🔌 Connecting to DNS Database...")
-	// Ensure you have implemented ConnectSQL in internal/database
 	dnsDB, err := database.ConnectSQL(cfg.DNSUser, cfg.DNSPass, cfg.DNSHost, cfg.DNSName)
 	if err != nil {
-		// We log error but don't crash, in case you want to run WAF without DNS features initially
 		log.Printf("⚠️ DNS Database Connection failed: %v", err)
 	} else {
 		defer dnsDB.Close()
-		log.Println("✅ Connected to DNS Database")
 	}
 
-	// 3. Initialize Repositories
+	// 3. Repositories
 	userRepo := mongo.NewUserRepository(mongoClient)
 	domainRepo := mongo.NewDomainRepository(mongoClient)
 	ruleRepo := mongo.NewRuleRepository(mongoClient)
 	logRepo := mongo.NewLogRepository(mongoClient)
-
-	// [NEW] Initialize DNS SQL Repository
+	
 	var dnsRepo *sql.DNSRepository
 	if dnsDB != nil {
 		dnsRepo = sql.NewDNSRepository(dnsDB)
 	}
 
-	// 4. Initialize Services
+	// 4. Services
 	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
-
-	// Initialize Limiter
 	rateLimiter := limiter.New(100, 1*time.Minute)
-
-	// Initialize WAF Service
 	wafService := service.NewWAFService(domainRepo, ruleRepo, logRepo, cfg.MLURL, rateLimiter)
 
-	// 5. Initialize Proxy
+	// 5. Proxy
 	reverseProxy := proxy.NewProxy(domainRepo, cfg.DefaultOrigin)
 
-	// 6. Initialize Handlers
+	// 6. Handlers
 	authHandler := handler.NewAuthHandler(authService)
 	wafHandler := handler.NewWAFHandler(wafService, reverseProxy)
-
-	// [UPDATED] Pass dnsRepo to DomainHandler so it can manage Records
-	// You need to update NewDomainHandler signature in internal/handler/domain.go
-	domainHandler := handler.NewDomainHandler(domainRepo, dnsRepo)
-
+	domainHandler := handler.NewDomainHandler(domainRepo, dnsRepo) // Pass dnsRepo
 	ruleHandler := handler.NewRuleHandler(ruleRepo)
+	logHandler := handler.NewLogHandler(logRepo)       // [NEW]
+	systemHandler := handler.NewSystemHandler(mongoClient) // [NEW]
 
-	// 7. Define Routes
+	// 7. Routes
 	mux := http.NewServeMux()
+	authMiddleware := middleware.AuthMiddleware(cfg.JWTSecret)
 
-	// Public Routes
+	// --- Public API ---
+	mux.HandleFunc("/api/status", systemHandler.SystemStatus)
 	mux.HandleFunc("/api/auth/register", authHandler.Register)
 	mux.HandleFunc("/api/auth/login", authHandler.Login)
 	mux.HandleFunc("/api/auth/logout", authHandler.Logout)
+	mux.HandleFunc("/api/stream", logHandler.SSEHandler) // SSE often needs to be public or handled with query param token
 
-	// Protected Routes
-	authMiddleware := middleware.AuthMiddleware(cfg.JWTSecret)
+	// --- Protected API ---
+	mux.HandleFunc("/api/auth/check", authMiddleware(authHandler.CheckAuth))
+	
+	// Domains
 	mux.HandleFunc("/api/domains", authMiddleware(domainHandler.ListDomains))
 	mux.HandleFunc("/api/domains/add", authMiddleware(domainHandler.AddDomain))
+	mux.HandleFunc("/api/domains/verify", authMiddleware(domainHandler.VerifyDomain))
+	mux.HandleFunc("/api/dns/records", authMiddleware(domainHandler.ManageRecords))
+
+	// Rules
 	mux.HandleFunc("/api/rules/global", authMiddleware(ruleHandler.GetGlobalRules))
+	mux.HandleFunc("/api/rules/custom", authMiddleware(ruleHandler.GetCustomRules))
+	mux.HandleFunc("/api/rules/custom/add", authMiddleware(ruleHandler.AddCustomRule))
+	mux.HandleFunc("/api/rules/custom/delete", authMiddleware(ruleHandler.DeleteCustomRule))
 	mux.HandleFunc("/api/rules/toggle", authMiddleware(ruleHandler.ToggleRule))
 
-	// WAF Traffic Handler
+	// Logs
+	mux.HandleFunc("/api/logs/secure", authMiddleware(logHandler.SecuredLogsHandler))
+
+	// --- WAF (Catch-All) ---
 	mux.HandleFunc("/", wafHandler.HandleRequest)
 
-	// 8. MIDDLEWARE CHAIN
+	// 8. Middleware Chain
 	loggedRouter := middleware.RequestLogger(mux)
 	finalHandler := middleware.CORSMiddleware(cfg.FrontendURL)(loggedRouter)
 
-	// ---------------------------------------------------------
-	// 9. Server Start
-	// ---------------------------------------------------------
-
+	// 9. Start Server
 	hostPolicy := func(ctx context.Context, host string) error {
-		if host == "api.minishield.tech" || host == "test.minishield.tech" {
+		if host == "api.minishield.tech" || host == "dashboard.minishield.tech" {
 			return nil
 		}
 		if _, err := domainRepo.GetByName(ctx, host); err == nil {
@@ -125,17 +122,15 @@ func main() {
 	}
 
 	httpsServer := &http.Server{
-		Addr:    ":443",
-		Handler: finalHandler,
-		TLSConfig: &tls.Config{
-			GetCertificate: certManager.GetCertificate,
-		},
+		Addr:         ":443",
+		Handler:      finalHandler,
+		TLSConfig:    &tls.Config{GetCertificate: certManager.GetCertificate},
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
 
 	go func() {
-		log.Printf("✅ HTTP Server running on :80 (Redirects to HTTPS)")
+		log.Printf("✅ HTTP Server running on :80")
 		if err := http.ListenAndServe(":80", certManager.HTTPHandler(nil)); err != nil {
 			log.Fatalf("HTTP Server Failed: %v", err)
 		}
