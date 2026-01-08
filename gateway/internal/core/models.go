@@ -94,7 +94,7 @@ type AttackLog struct {
 	RuleScore   int                    `bson:"rule_score" json:"rule_score"`
 	MLScore     float64                `bson:"ml_score" json:"ml_score"`
 	Request     map[string]interface{} `bson:"request" json:"request"` // FullRequest
-	Trigger     string                 `bson:"trigger" json:"trigger"`
+	Trigger     string                 `bson:"trigger_payload" json:"trigger_payload"`
 }
 
 type PaginatedLogs struct {
