@@ -6,44 +6,30 @@ import (
 	"time"
 )
 
-// ResponseWriterWrapper allows us to capture the status code
-type ResponseWriterWrapper struct {
+type statusRecorder struct {
 	http.ResponseWriter
-	StatusCode int
+	Status int
 }
 
-// WriteHeader captures the status code
-func (w *ResponseWriterWrapper) WriteHeader(code int) {
-	w.StatusCode = code
-	w.ResponseWriter.WriteHeader(code)
+func (r *statusRecorder) WriteHeader(status int) {
+	r.Status = status
+	r.ResponseWriter.WriteHeader(status)
 }
 
-// RequestLogger logs every request
+// [CRITICAL FIX] Implement Flush so SSEHandler can use it
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 func RequestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		recorder := &statusRecorder{ResponseWriter: w, Status: 200}
+		
+		next.ServeHTTP(recorder, r)
 
-		// Wrap the ResponseWriter
-		wrappedWriter := &ResponseWriterWrapper{
-			ResponseWriter: w,
-			StatusCode:     http.StatusOK, // Default to 200
-		}
-
-		// Process request
-		next.ServeHTTP(wrappedWriter, r)
-
-		// Calculate duration
-		duration := time.Since(start)
-
-		// Log the details
-		// Format: [STATUS] METHOD PATH | IP | DURATION
-		log.Printf(
-			"[%d] %s %s | %s | %v",
-			wrappedWriter.StatusCode,
-			r.Method,
-			r.URL.Path,
-			r.RemoteAddr,
-			duration,
-		)
+		log.Printf("[%s] %s %s %d %s", r.Method, r.RequestURI, r.RemoteAddr, recorder.Status, time.Since(start))
 	})
 }

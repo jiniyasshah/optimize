@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"web-app-firewall-ml-detection/internal/core"
 	"web-app-firewall-ml-detection/internal/utils/logger"
@@ -18,32 +19,44 @@ func NewLogHandler(repo core.LogRepository) *LogHandler {
 	return &LogHandler{repo: repo}
 }
 
-// SSEHandler - Reverted to your previous working version
 func (h *LogHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
-	// Standard SSE Headers
+	// 1. Set Headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	
+	w.Header().Set("X-Accel-Buffering", "no") 
 
+	// 2. Check for Flusher
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
 
-	// Get the global channel
+	fmt.Fprintf(w, ": connected\n\n")
+	flusher.Flush()
+
+	
 	logsCh := logger.GetBroadcastChannel()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
+		// A. Log Entry
 		case entry := <-logsCh:
-			// Marshal the log entry to JSON
 			data, _ := json.Marshal(entry)
-			
-			// Write the event: data: <JSON>\n\n
 			fmt.Fprintf(w, "data: %s\n\n", data)
-			
-			// Flush immediately to client
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
-			}
+			flusher.Flush()
+
+		// B. Heartbeat (Keep connection open during silence)
+		case <-ticker.C:
+			fmt.Fprintf(w, ": keep-alive\n\n")
+			flusher.Flush()
+
+		// C. Disconnect
 		case <-r.Context().Done():
-			// Client disconnected
 			return
 		}
 	}
