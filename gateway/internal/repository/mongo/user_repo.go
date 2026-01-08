@@ -56,3 +56,4 @@ func (r *UserRepository) GetByID(ctx context.Context, id string) (*core.User, er
 	}
 	return &user, nil
 }
+
