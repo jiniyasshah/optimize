@@ -169,7 +169,7 @@ func (h *DomainHandler) AddDomain(w http.ResponseWriter, r *http.Request) {
 			Content: soaContent,
 			TTL:     3600,
 		}
-		if _, err := h.dnsRepo.CreateRecord(ctx, soaRecord); err != nil {
+		if _, err := h.dnsRepo.CreateRecord(ctx, d.Name, soaRecord); err != nil {
 			log.Printf("Failed to create SOA for %s: %v", d.Name, err)
 		}
 
@@ -181,7 +181,7 @@ func (h *DomainHandler) AddDomain(w http.ResponseWriter, r *http.Request) {
 				Content: ns,
 				TTL:     3600,
 			}
-			if _, err := h.dnsRepo.CreateRecord(ctx, nsRecord); err != nil {
+			if _, err := h.dnsRepo.CreateRecord(ctx, d.Name, nsRecord); err != nil {
 				log.Printf("Failed to create NS for %s: %v", d.Name, err)
 			}
 		}
@@ -313,23 +313,25 @@ func (h *DomainHandler) ManageRecords(w http.ResponseWriter, r *http.Request) {
 		}
 		JSONSuccess(w, records)
 
-	case "POST":
+case "POST":
+		domainName := r.URL.Query().Get("domain")
+		if domainName == "" {
+			JSONError(w, "Missing domain parameter", http.StatusBadRequest)
+			return
+		}
+
 		var record core.DNSRecord
 		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
 			JSONError(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
 		
-		// TODO: Add verification that the current user OWNS this domain before allowing record creation.
+		id, err := h.dnsRepo.CreateRecord(r.Context(), domainName, record)
 		
-		id, err := h.dnsRepo.CreateRecord(r.Context(), record)
 		if err != nil {
 			JSONError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		JSONSuccess(w, map[string]string{"id": id})
-		
-	default:
-		JSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }

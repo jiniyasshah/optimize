@@ -19,21 +19,16 @@ func NewDNSRepository(db *sql.DB) *DNSRepository {
 	return &DNSRepository{db: db}
 }
 
-// CreateRecord inserts a DNS record into the PowerDNS backend.
-// Note: PowerDNS usually requires a domain_id (integer) which maps to the domain name.
-// This implementation assumes you might need to lookup that ID first or that core.DNSRecord carries it.
-func (r *DNSRepository) CreateRecord(ctx context.Context, record core.DNSRecord) (string, error) {
-	// First, find the numeric ID for the domain from the domains table (PowerDNS structure)
-	// This assumes a 'domains' table exists in PowerDNS with 'name' column.
+func (r *DNSRepository) CreateRecord(ctx context.Context, zoneName string, record core.DNSRecord) (string, error) {
+	// 1. Find the numeric ID for the ZONE (e.g., "example.com")
+	// We search for the ZONE NAME, not the record name.
 	var domainID int64
-	err := r.db.QueryRowContext(ctx, "SELECT id FROM domains WHERE name = ?", record.Name).Scan(&domainID)
+	err := r.db.QueryRowContext(ctx, "SELECT id FROM domains WHERE name = ?", zoneName).Scan(&domainID)
 	
-	// If the domain doesn't exist in the SQL DB yet, we might need to create it.
-	// For this snippet, we'll assume the domain must exist.
+	// 2. If the ZONE doesn't exist, create it.
 	if err == sql.ErrNoRows {
-		// As a fallback for this specific implementation, let's try to insert the domain first.
-		// In a real PowerDNS setup, you normally create the domain first.
-		res, err := r.db.ExecContext(ctx, "INSERT INTO domains (name, type) VALUES (?, 'NATIVE')", record.Name)
+		// Use zoneName here to create the container (Zone)
+		res, err := r.db.ExecContext(ctx, "INSERT INTO domains (name, type) VALUES (?, 'NATIVE')", zoneName)
 		if err != nil {
 			return "", fmt.Errorf("failed to create domain in DNS DB: %w", err)
 		}
@@ -42,6 +37,7 @@ func (r *DNSRepository) CreateRecord(ctx context.Context, record core.DNSRecord)
 		return "", fmt.Errorf("failed to lookup domain ID: %w", err)
 	}
 
+	// 3. Insert the Record
 	query := `INSERT INTO records (domain_id, name, type, content, ttl, prio, change_date) 
 	          VALUES (?, ?, ?, ?, ?, ?, ?)`
 
@@ -50,11 +46,11 @@ func (r *DNSRepository) CreateRecord(ctx context.Context, record core.DNSRecord)
 
 	res, err := r.db.ExecContext(ctx, query, 
 		domainID, 
-		record.Name, 
+		record.Name,    // This is the specific record (e.g. "api.example.com")
 		record.Type, 
 		record.Content, 
 		record.TTL, 
-		0, // Priority is usually 0 for non-MX records
+		0,              // Priority is usually 0 for non-MX records
 		changeDate,
 	)
 
