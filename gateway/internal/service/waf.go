@@ -169,8 +169,8 @@ func (s *WAFService) CheckRequest(r *http.Request, clientIP string) (action stri
 
 // 4. Async Logging
     go func() {
-        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-        defer cancel()
+     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
 
         logEntry := core.AttackLog{
             UserID:      domain.UserID,
@@ -188,7 +188,7 @@ func (s *WAFService) CheckRequest(r *http.Request, clientIP string) (action stri
         }
 
         // A. Save to Database (Persistent Storage)
-        _ = s.logRepo.LogAttack(ctx, logEntry)
+         _ = s.logRepo.LogAttack(ctx, logEntry) 
 
         // B. Broadcast to Dashboard (Real-Time)
         logger.LogAttack(logEntry)
