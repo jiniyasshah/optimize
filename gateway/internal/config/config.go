@@ -34,7 +34,7 @@ func Load() *Config {
 		// App
 		AppEnv:      getEnv("APP_ENV", "development"),
 		Port:        getEnv("PORT", ":80"),
-		WAFPublicIP: getEnv("WAF_PUBLIC_IP", "64.227.156.70"),
+		WAFPublicIP: getEnv("WAF_PUBLIC_IP", "157.245.100.147"),
 
 		// URLs
 		FrontendURL:   getEnv("FRONTEND_URL", "https://www.minishield.tech"),
