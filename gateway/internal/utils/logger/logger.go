@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"log"
 	"web-app-firewall-ml-detection/internal/core"
 )
 
@@ -8,15 +9,15 @@ import (
 var broadcast = make(chan core.AttackLog, 100)
 
 // GetBroadcastChannel returns the read-only channel
-func GetBroadcastChannel() chan core.AttackLog {
-	return broadcast
+func GetBroadcastChannel() <-chan core.AttackLog {
+    return broadcast
 }
 
 func LogAttack(entry core.AttackLog) {
-	select {
-	case broadcast <- entry:
-		// Pushed to channel
-	default:
-		// Channel full, drop to prevent blocking
-	}
+    select {
+    case broadcast <- entry:
+        log.Printf("✅ Log queued to broadcast channel")
+    default:
+        log. Printf("⚠️ Broadcast channel full, dropping log:  %s", entry.ClientIP)
+    }
 }

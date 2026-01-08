@@ -167,32 +167,33 @@ func (s *WAFService) CheckRequest(r *http.Request, clientIP string) (action stri
 		reason = "Suspicious"
 	}
 
-// 4. Async Logging
-    go func() {
-     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+go func() {
+    ctx, cancel := context.WithTimeout(context. Background(), 5*time.Second)
     defer cancel()
 
-        logEntry := core.AttackLog{
-            UserID:      domain.UserID,
-            DomainID:    domain.ID,
-            Timestamp:   time.Now(),
-            ClientIP:    clientIP,
-            RequestPath: r.URL.Path,
-            Reason:      reason,
-            Action:      verdict,
-            Source:      "WAF",
-            Tags:        tags,
-            RuleScore:   score,
-            MLScore:     confidence,
-            Trigger:     finalTrigger,
-        }
+    logEntry := core.AttackLog{
+        UserID:      domain.UserID,
+        DomainID:    domain.ID,
+        Timestamp:   time.Now(),
+        ClientIP:    clientIP,
+        RequestPath: r.URL.Path,
+        Reason:      reason,
+        Action:      verdict,
+        Source:      "WAF",
+        Tags:        tags,
+        RuleScore:   score,
+        MLScore:     confidence,
+        Trigger:     finalTrigger,
+    }
 
-        // A. Save to Database (Persistent Storage)
-         _ = s.logRepo.LogAttack(ctx, logEntry) 
-
-        // B. Broadcast to Dashboard (Real-Time)
+    // A. Save to Database (Persistent Storage)
+    if err := s.logRepo.LogAttack(ctx, logEntry); err != nil {
+        log.Printf("❌ Failed to save log to DB: %v", err)
+    }
+	// B. Broadcast to SSE Stream
         logger.LogAttack(logEntry)
-    }()
+        log.Printf("📡 Broadcasted log:  %s | %s", clientIP, reason)
 
+}()
     return verdict, reason
 }
