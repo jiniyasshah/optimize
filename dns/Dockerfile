@@ -1,21 +1,21 @@
-# Use a slim version of Debian to reduce image size (Ubuntu latest is too heavy)
-FROM debian:bookworm-slim
+FROM ubuntu:24.04
 
-# Avoid interactive prompts during package installation
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install PowerDNS and the MySQL backend
+# Install PowerDNS, MySQL backend, and gettext-base for envsubst
 RUN apt-get update && apt-get install -y \
     pdns-server \
     pdns-backend-mysql \
-    && apt-get clean \
+    gettext-base \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy configuration
-COPY pdns.conf /etc/powerdns/pdns.conf
+# Remove default config
+RUN rm -f /etc/powerdns/pdns.d/bind.conf
 
-# Expose DNS ports (UDP and TCP)
-EXPOSE 53/udp 53/tcp
+# Copy template config and entrypoint script
+COPY pdns.conf.template /etc/powerdns/pdns.d/gmysql.conf.template
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# Run PowerDNS in the foreground so Docker can track it
-CMD ["pdns_server", "--daemon=no", "--guardian=no", "--loglevel=9"]
+EXPOSE 53/tcp
+EXPOSE 53/udp
+
+CMD ["/entrypoint.sh"]

@@ -35,3 +35,10 @@ go.work.sum
 
 #ml_scorer (Python virtual environment)
 venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ML training data (not needed in version control since we use pre-trained model)
+ml_scorer/data/

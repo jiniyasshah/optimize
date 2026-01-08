@@ -1,41 +1,20 @@
-# Stage 1: Builder
-# We use the version you specified
-FROM golang:1.25.4-alpine AS builder
+# Use a specific Go runtime version as a parent image
+FROM golang:1.25.4-alpine
 
+# Set the current working directory inside the container
 WORKDIR /app
 
-# Install git (sometimes needed for go mod)
-RUN apk add --no-cache git
-
-# Copy dependency files first (Better Docker Caching)
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Copy the rest of the application
+# Copy the Go code into the container at /app
 COPY . .
 
-# Build the binary (Statically linked for Alpine)
-RUN CGO_ENABLED=0 GOOS=linux go build -o waf-server ./cmd/server/main.go
+# Get dependencies (in case you have any Go modules)
+RUN go mod tidy
 
-# Stage 2: Runner (Tiny Image)
-FROM alpine:latest
+# Build the Go binary
+RUN go build -o main ./cmd/server/main.go
 
-WORKDIR /root/
+# Expose the port the app runs on
+EXPOSE 8080
 
-# Install Certificates for HTTPS
-RUN apk --no-cache add ca-certificates
-
-# Copy the binary from the builder stage
-COPY --from=builder /app/waf-server .
-
-# Copy your HTML pages (404, 502)
-COPY --from=builder /app/pages ./pages
-
-# Create certs directory for AutoCert
-RUN mkdir -p certs
-
-# Expose standard web ports
-EXPOSE 80 443
-
-# Run the binary
-CMD ["./waf-server"]
+# Run the Go binary
+CMD ["./main"]

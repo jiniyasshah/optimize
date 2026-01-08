@@ -6,112 +6,138 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
 	"time"
 
-	"web-app-firewall-ml-detection/internal/config"
+	"web-app-firewall-ml-detection/internal/api"
 	"web-app-firewall-ml-detection/internal/database"
-	"web-app-firewall-ml-detection/internal/handler"
-	"web-app-firewall-ml-detection/internal/middleware"
-	"web-app-firewall-ml-detection/internal/proxy"
-	"web-app-firewall-ml-detection/internal/repository/mongo"
-	"web-app-firewall-ml-detection/internal/repository/sql"
-	"web-app-firewall-ml-detection/internal/service"
-	"web-app-firewall-ml-detection/internal/utils/limiter"
+	"web-app-firewall-ml-detection/internal/limiter"
+	"web-app-firewall-ml-detection/internal/logger"
+	"web-app-firewall-ml-detection/internal/router"
+	"web-app-firewall-ml-detection/pkg/config"
+	"web-app-firewall-ml-detection/pkg/middleware"
 
 	"golang.org/x/crypto/acme/autocert"
 )
 
 func main() {
-	// 1. Config
+	// 1. LOAD CONFIGURATION
 	cfg := config.Load()
-	log.Printf("🚀 Starting WAF Gateway in %s mode...", cfg.AppEnv)
+	defaultOrigin := config.GetOriginURL()
 
-	// 2. Databases
-	mongoClient, err := database.Connect(cfg.MongoURI)
+	// 2. CONNECT DB (MongoDB)
+	log.Println("Connecting to MongoDB...")
+	client, err := database.Connect(cfg.Database.MongoURI)
 	if err != nil {
-		log.Fatalf("❌ MongoDB Connection failed: %v", err)
+		log.Fatal("MongoDB Connection failed:", err)
 	}
-	defer mongoClient.Disconnect(context.Background())
+	defer client.Disconnect(context.Background())
 
-	dnsDB, err := database.ConnectSQL(cfg.DNSUser, cfg.DNSPass, cfg.DNSHost, cfg.DNSName)
+	// 3. CONNECT DB (MySQL for DNS)
+	log.Println("Connecting to DNS SQL Database...")
+	err = database.ConnectDNS(cfg.DNS.User, cfg.DNS.Pass, cfg.DNS.Host, cfg.DNS.Name)
 	if err != nil {
-		log.Printf("⚠️ DNS Database Connection failed: %v", err)
-	} else {
-		defer dnsDB.Close()
+		log.Printf("Warning: DNS DB Connection failed: %v", err)
 	}
 
-	// 3. Repositories
-	userRepo := mongo.NewUserRepository(mongoClient)
-	domainRepo := mongo.NewDomainRepository(mongoClient)
-	ruleRepo := mongo.NewRuleRepository(mongoClient)
-	logRepo := mongo.NewLogRepository(mongoClient)
-	
-	var dnsRepo *sql.DNSRepository
-	if dnsDB != nil {
-		dnsRepo = sql.NewDNSRepository(dnsDB)
-	}
-
-	// 4. Services
-	authService := service.NewAuthService(userRepo, cfg.JWTSecret)
+	// 4. INIT COMPONENTS
+	logger.Init(client, "waf")
 	rateLimiter := limiter.New(100, 1*time.Minute)
-	wafService := service.NewWAFService(domainRepo, ruleRepo, logRepo, cfg.MLURL, rateLimiter)
 
-	// 5. Proxy
-	reverseProxy := proxy.NewProxy(domainRepo, cfg.DefaultOrigin)
+	page404, err := os.ReadFile("pages/404.html")
+	if err != nil {
+		log.Fatalf("❌ Critical: Could not load pages/404.html: %v", err)
+	}
 
-	// 6. Handlers
-	authHandler := handler.NewAuthHandler(authService)
-	wafHandler := handler.NewWAFHandler(wafService, reverseProxy)
-	domainHandler := handler.NewDomainHandler(domainRepo, dnsRepo, cfg.WAFPublicIP) // Pass dnsRepo
-	ruleHandler := handler.NewRuleHandler(ruleRepo)
-	logHandler := handler.NewLogHandler(logRepo)      
-	systemHandler := handler.NewSystemHandler(mongoClient, cfg.MLURL)
+	page502, err := os.ReadFile("pages/502.html")
+	if err != nil {
+		log.Fatalf("❌ Critical: Could not load pages/502.html: %v", err)
+	}
 
-	// 7. Routes
-	mux := http.NewServeMux()
-	authMiddleware := middleware.AuthMiddleware(cfg.JWTSecret)
+	// 5. REVERSE PROXY LOGIC (Dynamic Origin Switching)
+	director := func(req *http.Request) {
+		incomingHost := req.Host
+		var targetURL *url.URL
 
-	// --- Public API ---
-	mux.HandleFunc("/api/status", systemHandler.SystemStatus)
-	mux.HandleFunc("/api/auth/register", authHandler.Register)
-	mux.HandleFunc("/api/auth/login", authHandler.Login)
-	mux.HandleFunc("/api/auth/logout", authHandler.Logout)
-	mux.HandleFunc("/api/stream", logHandler.SSEHandler) // SSE often needs to be public or handled with query param token
+		// [UPDATED] Look up Full Record to check OriginSSL Preference
+		// NOTE: Ensure database.GetOriginRecord is defined in mongo.go
+		record, err := database.GetOriginRecord(client, incomingHost)
 
-	// --- Protected API ---
-	mux.HandleFunc("/api/auth/check", authMiddleware(authHandler.CheckAuth))
-	
-	// Domains
-	mux.HandleFunc("/api/domains", authMiddleware(domainHandler.ListDomains))
-	mux.HandleFunc("/api/domains/add", authMiddleware(domainHandler.AddDomain))
-	mux.HandleFunc("/api/domains/verify", authMiddleware(domainHandler.VerifyDomain))
-	mux.HandleFunc("/api/dns/records", authMiddleware(domainHandler.ManageRecords))
+		if err == nil && record != nil {
+			rawTarget := record.Content
+			
+			// DYNAMIC SCHEME SELECTION
+			// If user set "origin_ssl: true" -> Use HTTPS
+			// If not set (false) -> Use HTTP (Legacy behavior)
+			if record.OriginSSL {
+				if len(rawTarget) < 4 || rawTarget[:4] != "http" {
+					rawTarget = "https://" + rawTarget
+				}
+			} else {
+				if len(rawTarget) < 4 || rawTarget[:4] != "http" {
+					rawTarget = "http://" + rawTarget
+				}
+			}
 
-	// Rules
-	mux.HandleFunc("/api/rules/global", authMiddleware(ruleHandler.GetGlobalRules))
-	mux.HandleFunc("/api/rules/custom", authMiddleware(ruleHandler.GetCustomRules))
-	mux.HandleFunc("/api/rules/custom/add", authMiddleware(ruleHandler.AddCustomRule))
-	mux.HandleFunc("/api/rules/custom/delete", authMiddleware(ruleHandler.DeleteCustomRule))
-	mux.HandleFunc("/api/rules/toggle", authMiddleware(ruleHandler.ToggleRule))
+			targetURL, _ = url.Parse(rawTarget)
+			log.Printf("[Proxy] Routing %s -> %s (SSL: %v)", incomingHost, rawTarget, record.OriginSSL)
+		} else {
+			// Fallback if no user record exists
+			targetURL, _ = url.Parse(defaultOrigin)
+			log.Printf("[Proxy] No user record found for %s, using default: %s", incomingHost, defaultOrigin)
+		}
 
-	// Logs
-	mux.HandleFunc("/api/logs/secure", authMiddleware(logHandler.SecuredLogsHandler))
+		req.URL.Scheme = targetURL.Scheme
+		req.URL.Host = targetURL.Host
+		req.Header.Set("X-Forwarded-Host", incomingHost)
+		req.Header.Set("X-Forwarded-Proto", "https")
+		req.Header.Set("X-Real-IP", req.RemoteAddr)
+	}
 
-	// --- WAF (Catch-All) ---
-	mux.HandleFunc("/", wafHandler.HandleRequest)
+	// --- DEFINE THE PROXY WITH ERROR HANDLER ---
+	proxy := &httputil.ReverseProxy{
+		Director: director,
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			log.Printf("🔥 Proxy Error for %s: %v", r.Host, err)
 
-	// 8. Middleware Chain
-	loggedRouter := middleware.RequestLogger(mux)
-	finalHandler := middleware.CORSMiddleware(cfg.FrontendURL)(loggedRouter)
+			if r.Context().Err() != nil {
+				return
+			}
 
-	// 9. Start Server
+			w.WriteHeader(http.StatusBadGateway)
+			w.Header().Set("Content-Type", "text/html")
+			w.Write(page502)
+		},
+		// [CRITICAL] Skip SSL verification for Backend
+		// We trust our backend IP even if the cert doesn't match the IP address.
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	// 6. INIT API HANDLER
+	apiHandler := api.NewAPIHandler(client, proxy, rateLimiter, cfg, cfg.ML.URL, defaultOrigin, cfg.Server.WafPublicIP, page404)
+
+	// 7. SETUP ROUTES
+	mux := router.Setup(apiHandler)
+
+	// ---------------------------------------------------------
+	// 8. HTTPS AUTO-CERT CONFIGURATION
+	// ---------------------------------------------------------
+
 	hostPolicy := func(ctx context.Context, host string) error {
-		if host == "api.minishield.tech" || host == "test2.minishield.tech" {
+		// 1. Allow Admin/Dashboard domains explicitly
+		if host == "api.minishield.tech" || host == "test.minishield.tech" || host == "minishield.tech" {
 			return nil
 		}
-		if _, err := domainRepo.GetByName(ctx, host); err == nil {
+
+		// 2. Allow User Domains & Subdomains
+		if database.IsHostAllowed(client, host) {
 			return nil
 		}
+
 		return fmt.Errorf("host %s not allowed", host)
 	}
 
@@ -121,27 +147,31 @@ func main() {
 		Cache:      autocert.DirCache("certs"),
 	}
 
-httpsServer := &http.Server{
-    Addr:      ":443",
-    Handler:   finalHandler,
-    TLSConfig: &tls. Config{
-        GetCertificate: certManager.GetCertificate,
-        MinVersion:  tls.VersionTLS12,
-        Renegotiation: tls.RenegotiateNever,
-    },
-    ReadTimeout:  15 * time.Second,
-    WriteTimeout: 60 * time.Second,  // Increased for SSE heartbeats (every 15s)
-    IdleTimeout:  90 * time.Second,  // Connection idle timeout
-}
+	// Apply CORS middleware
+	corsMiddleware := middleware.CORS(middleware.DefaultCORSConfig())
+	handler := corsMiddleware(mux)
+
+	// HTTPS Server
+	httpsServer := &http.Server{
+		Addr:    ":443",
+		Handler: handler,
+		TLSConfig: &tls.Config{
+			GetCertificate: certManager.GetCertificate,
+		},
+	}
+
+	// ---------------------------------------------------------
+	// 9. START SERVERS
+	// ---------------------------------------------------------
 
 	go func() {
-		log.Printf("✅ HTTP Server running on :80")
+		log.Println("✅ Starting HTTP Server on :80 (ACME Challenge + Redirect)")
 		if err := http.ListenAndServe(":80", certManager.HTTPHandler(nil)); err != nil {
 			log.Fatalf("HTTP Server Failed: %v", err)
 		}
 	}()
 
-	log.Printf("🔒 HTTPS WAF Server running on :443")
+	log.Println("🔒 Starting HTTPS WAF on :443")
 	if err := httpsServer.ListenAndServeTLS("", ""); err != nil {
 		log.Fatalf("HTTPS Server Failed: %v", err)
 	}
