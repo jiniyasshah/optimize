@@ -118,8 +118,19 @@ Configuration is loaded from environment variables using the `pkg/config` packag
 #### DNS Records
 - `GET /api/dns/records` - List DNS records
 - `POST /api/dns/records` - Create DNS record
-- `PUT /api/dns/records` - Update DNS record
+- `PUT /api/dns/records` - Update DNS record (supports proxy and SSL toggles)
 - `DELETE /api/dns/records` - Delete DNS record
+
+**DNS Record Toggle Features:**
+- **Proxy Toggle (DNS-only vs WAF Proxy)**: Toggle whether traffic goes through the WAF or directly to the origin
+  - Request: `PUT /api/dns/records?domain_id=xxx&record_id=yyy` with `{"proxied": true/false}`
+  - When `proxied=true`: Traffic is routed through the WAF for inspection and protection
+  - When `proxied=false`: DNS points directly to the origin (DNS-only mode)
+  
+- **Origin SSL Toggle (HTTP vs HTTPS)**: Toggle the protocol used to connect to the origin server
+  - Request: `PUT /api/dns/records?domain_id=xxx&record_id=yyy` with `{"action": "toggle_origin_ssl", "origin_ssl": true/false}`
+  - When `origin_ssl=true`: WAF connects to origin using HTTPS
+  - When `origin_ssl=false`: WAF connects to origin using HTTP
 
 #### WAF Rules
 - `GET /api/rules/global` - Get global WAF rules
