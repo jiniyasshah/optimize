@@ -28,6 +28,7 @@ type Domain struct {
 	UserID    string    `bson:"user_id" json:"user_id"`
 	Name      string    `bson:"name" json:"name"`
 	Status    string    `bson:"status" json:"status"` // active, pending, etc.
+	Nameservers []string  `bson:"nameservers" json:"nameservers"`
 	CreatedAt time.Time `bson:"created_at" json:"created_at"`
 	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
 }
@@ -94,7 +95,7 @@ type AttackLog struct {
 	RuleScore   int                    `bson:"rule_score" json:"rule_score"`
 	MLScore     float64                `bson:"ml_score" json:"ml_score"`
 	Request     map[string]interface{} `bson:"request" json:"request"` // FullRequest
-	Trigger     string                 `bson:"trigger_payload" json:"trigger_payload"`
+	Trigger     string                 `bson:"trigger" json:"trigger"`
 }
 
 type PaginatedLogs struct {
