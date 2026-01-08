@@ -71,9 +71,12 @@ func fetchRemoteHealth(baseURL string) ComponentStatus {
 		rootURL = rootURL[:len(rootURL)-8]
 	}
 
-	client := http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(rootURL + "/health")
+	healthURL := rootURL + "/health"
+	client := http.Client{Timeout: 5 * time.Second} // Increased timeout for slow model loading
+	resp, err := client.Get(healthURL)
 	if err != nil {
+		// Log the error for debugging without spamming on every status check
+		// Users can check container logs if ML scorer appears offline
 		return ComponentStatus{
 			Status: "Offline", 
 			Memory: "0 MB", 

@@ -12,6 +12,8 @@ services:
     depends_on:
       dns_db:
         condition: service_healthy
+      ml_scorer:
+        condition: service_healthy
     environment:
       - MONGO_URI=${MONGO_URI}
       - ML_URL=http://ml_scorer:8000/predict
@@ -34,6 +36,12 @@ services:
       - "8000:8000"
     environment:
       - MODEL_PATH=/app/waf_model.pkl
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - waf_net
 
