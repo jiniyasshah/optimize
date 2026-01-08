@@ -25,8 +25,7 @@ func (h *LogHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("X-Accel-Buffering", "no") // Disables Nginx buffering
+	w.Header().Set("X-Accel-Buffering", "no") 
 
 	// 2. Ensure Client supports streaming
 	flusher, ok := w.(http.Flusher)
@@ -36,10 +35,9 @@ func (h *LogHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Subscribe to the Broker
-	// This gives us a unique channel just for this HTTP request
 	logChan := logger.Subscribe()
 	
-	// 4. CLEANUP: Must unsubscribe when function exits (connection closes)
+	// 4. CLEANUP
 	defer func() {
 		logger.Unsubscribe(logChan)
 	}()
