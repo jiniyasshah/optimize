@@ -3,7 +3,7 @@ name: Auto Deploy to Server
 on:
   push:
     branches:
-      - test
+      - main
 
 jobs:
   deploy:
@@ -21,8 +21,8 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             cd /opt/waf
-            git fetch origin test
-            git reset --hard origin/test
+            git fetch origin main
+            git reset --hard origin/main
             docker compose down
             docker compose up --build -d
             docker image prune -f
