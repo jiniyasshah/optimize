@@ -29,17 +29,15 @@ type RDAPResponse struct {
 }
 
 type DomainHandler struct {
-    repo    core.DomainRepository
-    dnsRepo *sql.DNSRepository 
-    wafIP   string // [NEW] Store the WAF Public IP
+	repo    core.DomainRepository
+	dnsRepo *sql.DNSRepository 
+	wafIP   string 
 }
 
-// [UPDATED] Accept wafIP here
 func NewDomainHandler(r core.DomainRepository, d *sql.DNSRepository, wafIP string) *DomainHandler {
-    return &DomainHandler{repo: r, dnsRepo: d, wafIP: wafIP}
+	return &DomainHandler{repo: r, dnsRepo: d, wafIP: wafIP}
 }
 
-// ... (getRootDomain and checkRegistrarRDAP helper functions remain the same) ...
 func getRootDomain(domain string) string {
 	parts := strings.Split(domain, ".")
 	if len(parts) < 2 { return domain }
@@ -49,6 +47,7 @@ func getRootDomain(domain string) string {
 func checkRegistrarRDAP(domain string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	
 	url := fmt.Sprintf("https://rdap.org/domain/%s", domain)
 	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
 	req.Header.Set("Accept", "application/rdap+json")
@@ -109,6 +108,7 @@ func (h *DomainHandler) AddDomain(w http.ResponseWriter, r *http.Request) {
 	ns2 := realNameservers[idx2] + nsSuffix
 	domain.Nameservers = []string{ns1, ns2}
 	domain.Status = "pending_verification"
+	domain.ProxyEnabled = true // Default setting
 
 	// Create in Mongo
 	createdDomain, err := h.repo.Create(r.Context(), domain)
@@ -121,7 +121,7 @@ func (h *DomainHandler) AddDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Provision PowerDNS (SOA + NS)
+	// Provision PowerDNS (SOA + NS only)
 	go func(d core.Domain, n1, n2 string) {
 		if h.dnsRepo == nil { return }
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -130,7 +130,6 @@ func (h *DomainHandler) AddDomain(w http.ResponseWriter, r *http.Request) {
 		serial := time.Now().Format("2006010201")
 		soaContent := fmt.Sprintf("ns1.minishield.tech. hostmaster.minishield.tech. %s 10800 3600 604800 3600", serial)
 		
-		// [FIXED] Using 3-arg CreateRecord(ctx, zoneName, record)
 		h.dnsRepo.CreateRecord(ctx, d.Name, core.DNSRecord{Name: d.Name, Type: "SOA", Content: soaContent, TTL: 3600})
 		h.dnsRepo.CreateRecord(ctx, d.Name, core.DNSRecord{Name: d.Name, Type: "NS", Content: n1, TTL: 3600})
 		h.dnsRepo.CreateRecord(ctx, d.Name, core.DNSRecord{Name: d.Name, Type: "NS", Content: n2, TTL: 3600})
@@ -164,7 +163,7 @@ func (h *DomainHandler) VerifyDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Security Check
+	// Security Check (RDAP)
 	foundNS, err := checkRegistrarRDAP(domain.Name)
 	if err != nil {
 		log.Printf("RDAP Lookup failed: %v", err)
@@ -189,32 +188,32 @@ func (h *DomainHandler) VerifyDomain(w http.ResponseWriter, r *http.Request) {
 
 	if verified {
 		h.repo.RevokeOldOwnership(r.Context(), domain.Name, domain.ID)
-		err = h.repo.UpdateStatus(r.Context(), domain.ID, "active")
-		if err != nil {
-			JSONError(w, "DB Update failed", http.StatusInternalServerError)
-			return
-		}
+		
+		// Activate AND Enable Proxy
+		domain.Status = "active"
+		domain.ProxyEnabled = true
 
-		// [FIXED] Default Addition of A Record pointing to WAF IP
+		h.repo.UpdateStatus(r.Context(), domain.ID, "active")
+		h.repo.UpdateProxyMode(r.Context(), domain.ID, true)
+
+		// [SPLIT BRAIN] Add Default WAF A Record to SQL ONLY
+		// We do NOT add this to Mongo because it's a system record, not user input.
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			
-			log.Printf("🔹 Adding Default A Record for verified domain: %s -> %s", domain.Name, h.wafIP)
-			
+			log.Printf("🔹 Adding Default WAF A Record to SQL: %s -> %s", domain.Name, h.wafIP)
 			h.dnsRepo.CreateRecord(ctx, domain.Name, core.DNSRecord{
 				Name:    domain.Name,
 				Type:    "A",
-				Content: h.wafIP, // Uses the WAFPublicIP from Config
+				Content: h.wafIP, 
 				TTL:     3600,
 			})
-			
-			// If it's a subdomain, we might want to add 'www' too, but keeping it simple for now.
 		}()
 
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":  "active",
-			"message": "Domain verified! Traffic is now routing through WAF.",
+			"message": "Domain verified! Proxy Mode is ON by default.",
 		})
 	} else {
 		w.WriteHeader(http.StatusConflict)
@@ -233,31 +232,29 @@ func (h *DomainHandler) ManageRecords(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Get Domain ID (Best Practice)
-	domainID := r.URL.Query().Get("domain_id") // or "id"
+	domainID := r.URL.Query().Get("domain_id")
 	if domainID == "" {
 		JSONError(w, "Missing domain_id", http.StatusBadRequest)
 		return
 	}
 
-	// 2. SECURITY CHECK: Verify User Owns this Domain
-	// We must fetch from Mongo first to ensure the user is authorized.
+	// Ownership Check
 	domain, err := h.repo.GetByID(r.Context(), domainID)
 	if err != nil {
 		JSONError(w, "Domain not found", http.StatusNotFound)
 		return
 	}
-
-	userID, ok := r.Context().Value("user_id").(string)
-	if !ok || domain.UserID != userID {
+	userID, _ := r.Context().Value("user_id").(string)
+	if domain.UserID != userID {
 		JSONError(w, "Unauthorized", http.StatusForbidden)
 		return
 	}
 
-	// 3. Now safe to proceed using domain.Name
 	switch r.Method {
 	case "GET":
-		records, err := h.dnsRepo.GetRecords(r.Context(), domain.Name)
+		// [FIX] Fetch from Mongo (User View)
+		// We want to show the user what THEY configured, not the underlying WAF IPs
+		records, err := h.repo.GetRecords(r.Context(), domainID)
 		if err != nil {
 			JSONError(w, "Failed to fetch records", http.StatusInternalServerError)
 			return
@@ -271,17 +268,100 @@ func (h *DomainHandler) ManageRecords(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		
-		// Use the verified domain.Name from the DB, not from the user input
-		id, err := h.dnsRepo.CreateRecord(r.Context(), domain.Name, record)
+		record.DomainID = domainID
+		
+		// 1. Save to MongoDB (Source of Truth)
+		id, err := h.repo.CreateRecord(r.Context(), record)
 		if err != nil {
-			JSONError(w, err.Error(), http.StatusInternalServerError)
+			JSONError(w, "Database error", http.StatusInternalServerError)
 			return
 		}
+		
+		// 2. SQL Sync Logic (Split Brain)
+		// Non-routable records (MX, TXT, NS) must always go to SQL to work.
+		if record.Type == "NS" || record.Type == "MX" || record.Type == "TXT" {
+			go h.dnsRepo.CreateRecord(context.Background(), domain.Name, record)
+		} else if record.Type == "A" || record.Type == "CNAME" {
+			// Routable records only go to SQL if Proxy is OFF.
+			// If Proxy is ON, we ignore them in SQL (so the default WAF IP stays active).
+			if !domain.ProxyEnabled {
+				go h.dnsRepo.CreateRecord(context.Background(), domain.Name, record)
+			}
+		}
+
 		JSONSuccess(w, map[string]string{"id": id})
 	
 	default:
 		JSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// [NEW] Toggle Proxy Mode
+func (h *DomainHandler) ToggleProxyMode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		JSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		DomainID string `json:"domain_id"`
+		Enabled  bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// 1. Get Domain & Verify Ownership
+	domain, err := h.repo.GetByID(r.Context(), req.DomainID)
+	if err != nil || domain.UserID != r.Context().Value("user_id").(string) {
+		JSONError(w, "Unauthorized or not found", http.StatusForbidden)
+		return
+	}
+
+	// 2. Update Mongo Status
+	err = h.repo.UpdateProxyMode(r.Context(), req.DomainID, req.Enabled)
+	if err != nil {
+		JSONError(w, "Failed to update status", http.StatusInternalServerError)
+		return
+	}
+
+	// 3. Switch SQL Records (The Big Swap)
+	go func() {
+		ctx := context.Background()
+		
+		if req.Enabled {
+			// --- ENABLING PROXY MODE ---
+			// 1. Remove User's A/CNAME records from SQL (they expose the real IP)
+			h.dnsRepo.DeleteRecordsByType(ctx, domain.Name, "A")
+			h.dnsRepo.DeleteRecordsByType(ctx, domain.Name, "CNAME")
+			
+			// 2. Add the "Shield" (Default WAF A Record)
+			h.dnsRepo.CreateRecord(ctx, domain.Name, core.DNSRecord{
+				Name:    domain.Name,
+				Type:    "A",
+				Content: h.wafIP,
+				TTL:     300,
+			})
+			log.Printf("🛡️ Proxy Enabled for %s: Switched DNS to WAF IP", domain.Name)
+
+		} else {
+			// --- DISABLING PROXY MODE (DNS ONLY) ---
+			// 1. Remove the "Shield" (WAF IP)
+			h.dnsRepo.DeleteRecordsByType(ctx, domain.Name, "A")
+			
+			// 2. Push ALL User A/CNAME records from Mongo -> SQL
+			userRecords, _ := h.repo.GetRecords(ctx, req.DomainID)
+			for _, rec := range userRecords {
+				if rec.Type == "A" || rec.Type == "CNAME" {
+					h.dnsRepo.CreateRecord(ctx, domain.Name, rec)
+				}
+			}
+			log.Printf("🌍 DNS Mode for %s: Exposed User Records directly", domain.Name)
+		}
+	}()
+
+	JSONSuccess(w, map[string]bool{"proxy_enabled": req.Enabled})
 }
 
 func (h *DomainHandler) ListDomains(w http.ResponseWriter, r *http.Request) {

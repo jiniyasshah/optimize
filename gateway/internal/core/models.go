@@ -24,13 +24,14 @@ type UserInput struct {
 // --- Domain & DNS Models ---
 
 type Domain struct {
-	ID        string    `bson:"_id,omitempty" json:"id"`
-	UserID    string    `bson:"user_id" json:"user_id"`
-	Name      string    `bson:"name" json:"name"`
-	Status    string    `bson:"status" json:"status"` // active, pending, etc.
-	Nameservers []string  `bson:"nameservers" json:"nameservers"`
-	CreatedAt time.Time `bson:"created_at" json:"created_at"`
-	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
+	ID           string    `bson:"_id,omitempty" json:"id"`
+	UserID       string    `bson:"user_id" json:"user_id"`
+	Name         string    `bson:"name" json:"name"`
+	Status       string    `bson:"status" json:"status"` 
+	Nameservers  []string  `bson:"nameservers" json:"nameservers"`
+	ProxyEnabled bool      `bson:"proxy_enabled" json:"proxy_enabled"` // [NEW] Toggle state
+	CreatedAt    time.Time `bson:"created_at" json:"created_at"`
+	UpdatedAt    time.Time `bson:"updated_at" json:"updated_at"`
 }
 
 type DNSRecord struct {

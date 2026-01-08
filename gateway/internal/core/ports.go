@@ -31,7 +31,7 @@ type DomainRepository interface {
 	UpdateRecordSSL(ctx context.Context, id string, ssl bool) error
 	GetAllRecords(ctx context.Context) ([]DNSRecord, error) // For cache reloading
 	CheckDuplicateRecord(ctx context.Context, domainID, name, rType, content string) (bool, error)
-	
+	UpdateProxyMode(ctx context.Context, id string, enabled bool) error
 	// Routing Helper
 	GetOriginRecord(ctx context.Context, host string) (*DNSRecord, error)
 }

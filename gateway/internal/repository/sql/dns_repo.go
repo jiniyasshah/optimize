@@ -63,7 +63,6 @@ func (r *DNSRepository) CreateRecord(ctx context.Context, zoneName string, recor
 	return fmt.Sprintf("%d", id), nil
 }
 
-// ... (GetRecords, DeleteRecord, GetRecordByID remain the same as before)
 func (r *DNSRepository) GetRecords(ctx context.Context, domainName string) ([]core.DNSRecord, error) {
 	query := `
 		SELECT r.id, r.name, r.type, r.content, r.ttl 
@@ -84,4 +83,27 @@ func (r *DNSRepository) GetRecords(ctx context.Context, domainName string) ([]co
 		records = append(records, rec)
 	}
 	return records, nil
+}
+
+// DeleteRecordsByType removes all records of a specific type for a domain (e.g., delete all 'A' records)
+func (r *DNSRepository) DeleteRecordsByType(ctx context.Context, zoneName string, recordType string) error {
+	// Join with domains table to ensure we only delete for the correct zone
+	query := `
+		DELETE r FROM records r
+		INNER JOIN domains d ON r.domain_id = d.id
+		WHERE d.name = ? AND r.type = ?`
+	
+	_, err := r.db.ExecContext(ctx, query, zoneName, recordType)
+	return err
+}
+
+// DeleteRecordByContent removes a specific record (used to remove the Default WAF A Record)
+func (r *DNSRepository) DeleteRecordByContent(ctx context.Context, zoneName, rType, content string) error {
+	query := `
+		DELETE r FROM records r
+		INNER JOIN domains d ON r.domain_id = d.id
+		WHERE d.name = ? AND r.type = ? AND r.content = ?`
+	
+	_, err := r.db.ExecContext(ctx, query, zoneName, rType, content)
+	return err
 }
