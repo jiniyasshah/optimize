@@ -6,46 +6,44 @@ import (
 	"time"
 )
 
-// statusRecorder wraps http.ResponseWriter to capture the status code
-type statusRecorder struct {
+// ResponseWriterWrapper allows us to capture the status code
+type ResponseWriterWrapper struct {
 	http.ResponseWriter
-	Status int
-	// We could also track written bytes here if needed
+	StatusCode int
 }
 
-func (r *statusRecorder) WriteHeader(status int) {
-	r.Status = status
-	r.ResponseWriter.WriteHeader(status)
+// WriteHeader captures the status code
+func (w *ResponseWriterWrapper) WriteHeader(code int) {
+	w.StatusCode = code
+	w.ResponseWriter.WriteHeader(code)
 }
 
-// [FIX] Implement the http.Flusher interface.
-// This allows the "Flush()" call from the SSE handler to reach the actual ResponseWriter.
-func (r *statusRecorder) Flush() {
-	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
-
+// RequestLogger logs every request
 func RequestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		// Initialize with StatusOK (200) because if WriteHeader isn't called, that's the default.
-		recorder := &statusRecorder{
+		// Wrap the ResponseWriter
+		wrappedWriter := &ResponseWriterWrapper{
 			ResponseWriter: w,
-			Status:         http.StatusOK,
+			StatusCode:     http.StatusOK, // Default to 200
 		}
 
-		next.ServeHTTP(recorder, r)
+		// Process request
+		next.ServeHTTP(wrappedWriter, r)
 
-		// Log the request details
+		// Calculate duration
+		duration := time.Since(start)
+
+		// Log the details
+		// Format: [STATUS] METHOD PATH | IP | DURATION
 		log.Printf(
-			"[%s] %s %s %d %s",
+			"[%d] %s %s | %s | %v",
+			wrappedWriter.StatusCode,
 			r.Method,
-			r.RequestURI,
+			r.URL.Path,
 			r.RemoteAddr,
-			recorder.Status,
-			time.Since(start),
+			duration,
 		)
 	})
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 
 	"web-app-firewall-ml-detection/internal/core"
 	"web-app-firewall-ml-detection/internal/utils/logger"
@@ -19,73 +18,50 @@ func NewLogHandler(repo core.LogRepository) *LogHandler {
 	return &LogHandler{repo: repo}
 }
 
-// SSEHandler implements a robust Event Stream with heartbeats and cleanup
+// SSEHandler - Reverted to your previous working version
 func (h *LogHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
-	// 1. Set Critical Headers
+	// Standard SSE Headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Accel-Buffering", "no") 
+	w.Header().Set("Connection", "keep-alive")
 
-	// 2. Ensure Client supports streaming
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
-		return
-	}
 
-	// 3. Subscribe to the Broker
-	logChan := logger.Subscribe()
-	
-	// 4. CLEANUP
-	defer func() {
-		logger.Unsubscribe(logChan)
-	}()
+	// Get the global channel
+	logsCh := logger.GetBroadcastChannel()
 
-	// 5. Heartbeat Ticker
-	// Sends a "ping" every 15s to keep the TCP connection alive
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-
-	// 6. Send initial "connected" message (Optional, helps frontend know stream started)
-	fmt.Fprintf(w, ": connected\n\n")
-	flusher.Flush()
-
-	// 7. Main Event Loop
 	for {
 		select {
-		// Case A: Client Disconnected (Tab closed, network lost)
+		case entry := <-logsCh:
+			// Marshal the log entry to JSON
+			data, _ := json.Marshal(entry)
+			
+			// Write the event: data: <JSON>\n\n
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			
+			// Flush immediately to client
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
 		case <-r.Context().Done():
-			return // Exits function, triggers defer cleanup
-
-		// Case B: Heartbeat Timer
-		case <-ticker.C:
-			// SSE Comment (starts with :) is ignored by JS EventSource but keeps socket open
-			fmt.Fprintf(w, ": keep-alive\n\n")
-			flusher.Flush()
-
-		// Case C: Real Log Data
-		case entry, ok := <-logChan:
-			if !ok {
-				return // Channel closed (shutdown)
-			}
-			data, err := json.Marshal(entry)
-			if err == nil {
-				// Prefix "data: " is required by SSE spec
-				fmt.Fprintf(w, "data: %s\n\n", data)
-				flusher.Flush()
-			}
+			// Client disconnected
+			return
 		}
 	}
 }
 
-// SecuredLogsHandler remains unchanged...
+// SecuredLogsHandler - Keeps the clean repository pattern
 func (h *LogHandler) SecuredLogsHandler(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 
 	page, _ := strconv.ParseInt(r.URL.Query().Get("page"), 10, 64)
-	if page < 1 { page = 1 }
+	if page < 1 {
+		page = 1
+	}
+
 	limit, _ := strconv.ParseInt(r.URL.Query().Get("limit"), 10, 64)
-	if limit < 1 { limit = 20 }
+	if limit < 1 {
+		limit = 20
+	}
 
 	filter := core.LogFilter{
 		UserID: userID,
@@ -98,5 +74,6 @@ func (h *LogHandler) SecuredLogsHandler(w http.ResponseWriter, r *http.Request) 
 		JSONError(w, "Failed to fetch logs", http.StatusInternalServerError)
 		return
 	}
+
 	JSONSuccess(w, logs)
 }
