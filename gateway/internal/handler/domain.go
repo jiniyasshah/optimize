@@ -292,3 +292,44 @@ func (h *DomainHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 	}
 	JSONSuccess(w, domains)
 }
+
+func (h *DomainHandler) ManageRecords(w http.ResponseWriter, r *http.Request) {
+	if h.dnsRepo == nil {
+		JSONError(w, "DNS service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	switch r.Method {
+	case "GET":
+		domainName := r.URL.Query().Get("domain")
+		if domainName == "" {
+			JSONError(w, "Missing domain parameter", http.StatusBadRequest)
+			return
+		}
+		records, err := h.dnsRepo.GetRecords(r.Context(), domainName)
+		if err != nil {
+			JSONError(w, "Failed to fetch records", http.StatusInternalServerError)
+			return
+		}
+		JSONSuccess(w, records)
+
+	case "POST":
+		var record core.DNSRecord
+		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
+			JSONError(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		
+		// TODO: Add verification that the current user OWNS this domain before allowing record creation.
+		
+		id, err := h.dnsRepo.CreateRecord(r.Context(), record)
+		if err != nil {
+			JSONError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		JSONSuccess(w, map[string]string{"id": id})
+		
+	default:
+		JSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
