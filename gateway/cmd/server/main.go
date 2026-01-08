@@ -121,13 +121,18 @@ func main() {
 		Cache:      autocert.DirCache("certs"),
 	}
 
-	httpsServer := &http.Server{
-		Addr:         ":443",
-		Handler:      finalHandler,
-		TLSConfig:    &tls.Config{GetCertificate: certManager.GetCertificate},
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-	}
+httpsServer := &http.Server{
+    Addr:      ":443",
+    Handler:   finalHandler,
+    TLSConfig: &tls. Config{
+        GetCertificate: certManager.GetCertificate,
+        MinVersion:  tls.VersionTLS12,
+        Renegotiation: tls.RenegotiateNever,
+    },
+    ReadTimeout:  15 * time.Second,
+    WriteTimeout: 60 * time.Second,  // Increased for SSE heartbeats (every 15s)
+    IdleTimeout:  90 * time.Second,  // Connection idle timeout
+}
 
 	go func() {
 		log.Printf("✅ HTTP Server running on :80")

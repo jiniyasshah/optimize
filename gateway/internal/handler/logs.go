@@ -51,9 +51,9 @@ func (h *LogHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 
 		// B. Heartbeat (Keep connection open during silence)
-		case <-ticker.C:
-			fmt.Fprintf(w, ": keep-alive\n\n")
-			flusher.Flush()
+			case <-ticker.C:
+   			 fmt.Fprintf(w, ": heartbeat\n\n")  // Comment-only data keeps connection alive
+  			  flusher. Flush() 
 
 		// C. Disconnect
 		case <-r.Context().Done():
