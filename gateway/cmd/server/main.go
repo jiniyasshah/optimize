@@ -62,9 +62,9 @@ func main() {
 	// 6. Handlers
 	authHandler := handler.NewAuthHandler(authService)
 	wafHandler := handler.NewWAFHandler(wafService, reverseProxy)
-	domainHandler := handler.NewDomainHandler(domainRepo, dnsRepo) // Pass dnsRepo
+	domainHandler := handler.NewDomainHandler(domainRepo, dnsRepo, cfg.WAFPublicIP) // Pass dnsRepo
 	ruleHandler := handler.NewRuleHandler(ruleRepo)
-	logHandler := handler.NewLogHandler(logRepo)       // [NEW]
+	logHandler := handler.NewLogHandler(logRepo)      
 	systemHandler := handler.NewSystemHandler(mongoClient, cfg.MLURL)
 
 	// 7. Routes
