@@ -159,10 +159,10 @@ func (r *DomainRepository) GetOriginRecord(ctx context.Context, host string) (*c
 	return nil, err
 }
 
-func (r *DomainRepository) UpdateProxyMode(ctx context.Context, domainID string, enabled bool) error {
-	_, err := r.db.Collection("domains").UpdateOne(ctx, bson.M{"_id": domainID}, bson.M{
+func (r *DomainRepository) UpdateProxyMode(ctx context.Context, id string, enabled bool) error {
+	_, err := r.db.Collection("domains").UpdateOne(ctx, bson.M{"_id": id}, bson.M{
 		"$set": bson.M{
-			"proxy_enabled": enabled, 
+			"proxy_enabled": enabled,
 			"updated_at":    time.Now(),
 		},
 	})

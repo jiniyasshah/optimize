@@ -108,7 +108,7 @@ func (h *DomainHandler) AddDomain(w http.ResponseWriter, r *http.Request) {
 	ns2 := realNameservers[idx2] + nsSuffix
 	domain.Nameservers = []string{ns1, ns2}
 	domain.Status = "pending_verification"
-	domain.ProxyEnabled = true // Default setting
+	domain.ProxyEnabled = true // Default ON
 
 	// Create in Mongo
 	createdDomain, err := h.repo.Create(r.Context(), domain)
@@ -191,13 +191,12 @@ func (h *DomainHandler) VerifyDomain(w http.ResponseWriter, r *http.Request) {
 		
 		// Activate AND Enable Proxy
 		domain.Status = "active"
-		domain.ProxyEnabled = true
+		domain.ProxyEnabled = true 
 
 		h.repo.UpdateStatus(r.Context(), domain.ID, "active")
-		h.repo.UpdateProxyMode(r.Context(), domain.ID, true)
+		h.repo.UpdateProxyMode(r.Context(), domain.ID, true) // [FIXED] This now works
 
-		// [SPLIT BRAIN] Add Default WAF A Record to SQL ONLY
-		// We do NOT add this to Mongo because it's a system record, not user input.
+		// Add Default WAF A Record to SQL ONLY
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -252,8 +251,7 @@ func (h *DomainHandler) ManageRecords(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case "GET":
-		// [FIX] Fetch from Mongo (User View)
-		// We want to show the user what THEY configured, not the underlying WAF IPs
+		// User sees MongoDB data (User Inputs)
 		records, err := h.repo.GetRecords(r.Context(), domainID)
 		if err != nil {
 			JSONError(w, "Failed to fetch records", http.StatusInternalServerError)
@@ -278,12 +276,10 @@ func (h *DomainHandler) ManageRecords(w http.ResponseWriter, r *http.Request) {
 		}
 		
 		// 2. SQL Sync Logic (Split Brain)
-		// Non-routable records (MX, TXT, NS) must always go to SQL to work.
 		if record.Type == "NS" || record.Type == "MX" || record.Type == "TXT" {
 			go h.dnsRepo.CreateRecord(context.Background(), domain.Name, record)
 		} else if record.Type == "A" || record.Type == "CNAME" {
-			// Routable records only go to SQL if Proxy is OFF.
-			// If Proxy is ON, we ignore them in SQL (so the default WAF IP stays active).
+			// Only go to SQL if Proxy is OFF.
 			if !domain.ProxyEnabled {
 				go h.dnsRepo.CreateRecord(context.Background(), domain.Name, record)
 			}
@@ -332,11 +328,11 @@ func (h *DomainHandler) ToggleProxyMode(w http.ResponseWriter, r *http.Request) 
 		
 		if req.Enabled {
 			// --- ENABLING PROXY MODE ---
-			// 1. Remove User's A/CNAME records from SQL (they expose the real IP)
+			// Remove User's A/CNAME records from SQL
 			h.dnsRepo.DeleteRecordsByType(ctx, domain.Name, "A")
 			h.dnsRepo.DeleteRecordsByType(ctx, domain.Name, "CNAME")
 			
-			// 2. Add the "Shield" (Default WAF A Record)
+			// Add the "Shield" (Default WAF A Record)
 			h.dnsRepo.CreateRecord(ctx, domain.Name, core.DNSRecord{
 				Name:    domain.Name,
 				Type:    "A",
@@ -347,10 +343,10 @@ func (h *DomainHandler) ToggleProxyMode(w http.ResponseWriter, r *http.Request) 
 
 		} else {
 			// --- DISABLING PROXY MODE (DNS ONLY) ---
-			// 1. Remove the "Shield" (WAF IP)
+			// Remove the "Shield" (WAF IP)
 			h.dnsRepo.DeleteRecordsByType(ctx, domain.Name, "A")
 			
-			// 2. Push ALL User A/CNAME records from Mongo -> SQL
+			// Push ALL User A/CNAME records from Mongo -> SQL
 			userRecords, _ := h.repo.GetRecords(ctx, req.DomainID)
 			for _, rec := range userRecords {
 				if rec.Type == "A" || rec.Type == "CNAME" {
