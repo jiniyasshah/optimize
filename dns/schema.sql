@@ -11,15 +11,11 @@ CREATE TABLE IF NOT EXISTS domains (
   account               VARCHAR(40) CHARACTER SET 'utf8' DEFAULT NULL,
   options               TEXT DEFAULT NULL,
   catalog               VARCHAR(255) DEFAULT NULL,
-  created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id)
 ) Engine=InnoDB CHARACTER SET 'latin1';
 
 CREATE UNIQUE INDEX name_index ON domains(name);
 CREATE INDEX catalog_idx ON domains(catalog);
-CREATE INDEX created_at_idx ON domains(created_at);
-CREATE INDEX updated_at_idx ON domains(updated_at);
 
 
 CREATE TABLE IF NOT EXISTS records (
@@ -33,16 +29,12 @@ CREATE TABLE IF NOT EXISTS records (
   disabled              TINYINT(1) DEFAULT 0,
   ordername             VARCHAR(255) BINARY DEFAULT NULL,
   auth                  TINYINT(1) DEFAULT 1,
-  created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id)
 ) Engine=InnoDB CHARACTER SET 'latin1';
 
 CREATE INDEX nametype_index ON records(name,type);
 CREATE INDEX domain_id ON records(domain_id);
 CREATE INDEX ordername ON records (ordername);
-CREATE INDEX created_at_index ON records(created_at);
-CREATE INDEX updated_at_index ON records(updated_at);
 
 
 CREATE TABLE IF NOT EXISTS supermasters (

@@ -7,13 +7,9 @@ import re
 import json
 import psutil
 import time
-from logging_config import setup_logging
-
-# Configure logging
-logger = setup_logging(__name__)
 
 app = FastAPI()
-MODEL_PATH = os.getenv("MODEL_PATH", "/app/waf_model.pkl")
+MODEL_PATH = "waf_model.pkl"
 model = None
 
 # Stats tracking
@@ -116,9 +112,9 @@ def load_model():
     global model
     if os.path.exists(MODEL_PATH):
         model = joblib.load(MODEL_PATH)
-        logger.info(f"ML Model Loaded: {MODEL_PATH}")
+        print(f"✅ ML Model Loaded: {MODEL_PATH}")
     else:
-        logger.error(f"Critical: Model not found at {MODEL_PATH}. Check logs.")
+        print(f"❌ Critical: Model not found at {MODEL_PATH}. Check logs.")
 
 class RequestData(BaseModel):
     path: str
@@ -163,10 +159,14 @@ def predict(data: RequestData):
     global request_count
     request_count += 1
     
-    logger.debug("Request #%s - Path: %s", request_count, data.path)
+    # Debug Logs
+    print("\n" + "="*40)
+    print(f"📥 RECEIVED REQUEST #{request_count}")
+    print(f"🔹 Path:    {data.path!r}")
+    # print(f"🔹 Headers: {data.headers}") # Uncomment if you need deep debugging
+    print("="*40 + "\n", flush=True)
 
     if not model:
-        logger.error("Model not loaded")
         raise HTTPException(status_code=503, detail="Model not loaded")
 
     inspectable_items = dissect_payload(data.path, data.body, data.headers)

@@ -9,27 +9,67 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"web-app-firewall-ml-detection/internal/api"
 	"web-app-firewall-ml-detection/internal/database"
 	"web-app-firewall-ml-detection/internal/limiter"
 	"web-app-firewall-ml-detection/internal/logger"
-	"web-app-firewall-ml-detection/internal/router"
-	"web-app-firewall-ml-detection/pkg/config"
-	"web-app-firewall-ml-detection/pkg/middleware"
 
 	"golang.org/x/crypto/acme/autocert"
 )
 
+// getEnv handles fallback values for environment variables
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return fallback
+}
+
+// CORSMiddleware handles Preflight and Headers
+func CORSMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		envOrigins := getEnv("FRONTEND_URL", "https://www.minishield.tech")
+		allowedOrigins := strings.Split(envOrigins, ",")
+		requestOrigin := r.Header.Get("Origin")
+
+		for _, origin := range allowedOrigins {
+			if strings.TrimSpace(origin) == requestOrigin {
+				w.Header().Set("Access-Control-Allow-Origin", requestOrigin)
+				break
+			}
+		}
+
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
-	// 1. LOAD CONFIGURATION
-	cfg := config.Load()
-	defaultOrigin := config.GetOriginURL()
+	// 1. CONFIGURATION
+	mongoURI := getEnv("MONGO_URI", "mongodb://mongo:27017")
+	defaultOrigin := getEnv("ORIGIN_URL", "http://origin:3000")
+	mlURL := getEnv("ML_URL", "http://ml_scorer:8000/predict")
+	wafPublicIP := getEnv("WAF_PUBLIC_IP", "64.227.156.70")
+
+	dnsUser := getEnv("DNS_DB_USER", "pdns")
+	dnsPass := getEnv("DNS_DB_PASS", "pdns_password")
+	dnsHost := getEnv("DNS_DB_HOST", "dns_sql_db")
+	dnsDB := getEnv("DNS_DB_NAME", "powerdns")
 
 	// 2. CONNECT DB (MongoDB)
 	log.Println("Connecting to MongoDB...")
-	client, err := database.Connect(cfg.Database.MongoURI)
+	client, err := database.Connect(mongoURI)
 	if err != nil {
 		log.Fatal("MongoDB Connection failed:", err)
 	}
@@ -37,7 +77,7 @@ func main() {
 
 	// 3. CONNECT DB (MySQL for DNS)
 	log.Println("Connecting to DNS SQL Database...")
-	err = database.ConnectDNS(cfg.DNS.User, cfg.DNS.Pass, cfg.DNS.Host, cfg.DNS.Name)
+	err = database.ConnectDNS(dnsUser, dnsPass, dnsHost, dnsDB)
 	if err != nil {
 		log.Printf("Warning: DNS DB Connection failed: %v", err)
 	}
@@ -82,11 +122,11 @@ func main() {
 			}
 
 			targetURL, _ = url.Parse(rawTarget)
-			// Removed proxy routing log - only suspicious/malicious requests are logged via logger.LogAttack
+			log.Printf("[Proxy] Routing %s -> %s (SSL: %v)", incomingHost, rawTarget, record.OriginSSL)
 		} else {
 			// Fallback if no user record exists
 			targetURL, _ = url.Parse(defaultOrigin)
-			// Removed proxy routing log - only suspicious/malicious requests are logged via logger.LogAttack
+			log.Printf("[Proxy] No user record found for %s, using default: %s", incomingHost, defaultOrigin)
 		}
 
 		req.URL.Scheme = targetURL.Scheme
@@ -118,10 +158,27 @@ func main() {
 	}
 
 	// 6. INIT API HANDLER
-	apiHandler := api.NewAPIHandler(client, proxy, rateLimiter, cfg, cfg.ML.URL, defaultOrigin, cfg.Server.WafPublicIP, page404)
+	apiHandler := api.NewAPIHandler(client, proxy, rateLimiter, mlURL, defaultOrigin, wafPublicIP, page404)
 
-	// 7. SETUP ROUTES
-	mux := router.Setup(apiHandler)
+	// 7. DEFINE ROUTES
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/status", apiHandler.SystemStatus)
+	mux.HandleFunc("/api/auth/register", apiHandler.Register)
+	mux.HandleFunc("/api/auth/login", apiHandler.Login)
+	mux.HandleFunc("/api/auth/logout", apiHandler.Logout)
+	mux.HandleFunc("/api/auth/check", api.AuthMiddleware(apiHandler.CheckAuth))
+	mux.HandleFunc("/api/stream", apiHandler.SSEHandler)
+	mux.HandleFunc("/api/domains", api.AuthMiddleware(apiHandler.ListDomains))
+	mux.HandleFunc("/api/domains/add", api.AuthMiddleware(apiHandler.AddDomain))
+	mux.HandleFunc("/api/domains/verify", api.AuthMiddleware(apiHandler.VerifyDomain))
+	mux.HandleFunc("/api/dns/records", api.AuthMiddleware(apiHandler.ManageRecords))
+	mux.HandleFunc("/api/rules/global", api.AuthMiddleware(apiHandler.GetGlobalRules))
+	mux.HandleFunc("/api/rules/custom", api.AuthMiddleware(apiHandler.GetCustomRules))
+	mux.HandleFunc("/api/rules/custom/add", api.AuthMiddleware(apiHandler.AddCustomRule))
+	mux.HandleFunc("/api/rules/custom/delete", api.AuthMiddleware(apiHandler.DeleteCustomRule))
+	mux.HandleFunc("/api/rules/toggle", api.AuthMiddleware(apiHandler.ToggleRule))
+	mux.HandleFunc("/api/logs/secure", api.AuthMiddleware(apiHandler.SecuredLogsHandler))
+	mux.HandleFunc("/", apiHandler.WAFHandler)
 
 	// ---------------------------------------------------------
 	// 8. HTTPS AUTO-CERT CONFIGURATION
@@ -129,7 +186,7 @@ func main() {
 
 	hostPolicy := func(ctx context.Context, host string) error {
 		// 1. Allow Admin/Dashboard domains explicitly
-		if host == "api.minishield.tech" || host == "test2.minishield.tech" || host == "minishield.tech" {
+		if host == "api.minishield.tech" || host == "test.minishield.tech" || host == "minishield.tech" {
 			return nil
 		}
 
@@ -147,14 +204,10 @@ func main() {
 		Cache:      autocert.DirCache("certs"),
 	}
 
-	// Apply CORS middleware
-	corsMiddleware := middleware.CORS(middleware.DefaultCORSConfig())
-	handler := corsMiddleware(mux)
-
 	// HTTPS Server
 	httpsServer := &http.Server{
 		Addr:    ":443",
-		Handler: handler,
+		Handler: CORSMiddleware(mux),
 		TLSConfig: &tls.Config{
 			GetCertificate: certManager.GetCertificate,
 		},

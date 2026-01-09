@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"sync/atomic"
 	"time"
-	"web-app-firewall-ml-detection/pkg/response"
 )
 
 // ComponentStatus struct for System Status API
@@ -21,6 +20,8 @@ type ComponentStatus struct {
 }
 
 func (h *APIHandler) SystemStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	statusMap := make(map[string]ComponentStatus)
 
 	// 1.GATEWAY STATS (Self)
@@ -57,7 +58,7 @@ func (h *APIHandler) SystemStatus(w http.ResponseWriter, r *http.Request) {
 	// 3.ML SCORER STATS
 	statusMap["ml_scorer"] = fetchRemoteHealth(h.MLURL)
 
-	response.JSON(w, statusMap, http.StatusOK)
+	json.NewEncoder(w).Encode(statusMap)
 }
 
 // Helper to fetch rich stats from Python services
@@ -71,12 +72,9 @@ func fetchRemoteHealth(baseURL string) ComponentStatus {
 		rootURL = rootURL[:len(rootURL)-8]
 	}
 
-	healthURL := rootURL + "/health"
-	client := http.Client{Timeout: 5 * time.Second} // Increased timeout for slow model loading
-	resp, err := client.Get(healthURL)
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(rootURL + "/health")
 	if err != nil {
-		// Log the error for debugging without spamming on every status check
-		// Users can check container logs if ML scorer appears offline
 		return ComponentStatus{
 			Status: "Offline", 
 			Memory: "0 MB", 

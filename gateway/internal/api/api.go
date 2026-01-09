@@ -1,16 +1,19 @@
+// type: uploaded file
+// fileName: jiniyasshah/web-app-firewall-ml-detection/web-app-firewall-ml-detection-test/gateway/internal/api/api.go
 package api
 
 import (
+	"encoding/json"
 	"log"
+	"net/http"
+	"net/http/httputil"
 	"sync"
 	"sync/atomic"
 	"time"
-	"web-app-firewall-ml-detection/pkg/config"
 
 	"web-app-firewall-ml-detection/internal/database"
 	"web-app-firewall-ml-detection/internal/detector"
 	"web-app-firewall-ml-detection/internal/limiter"
-	"net/http/httputil"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -25,7 +28,6 @@ type APIHandler struct {
 	MongoClient *mongo.Client
 	Proxy       *httputil.ReverseProxy
 	RateLimiter *limiter.RateLimiter
-	Config      *config.Config
 
 	MLURL            string
 	OriginURL        string
@@ -47,12 +49,11 @@ type APIHandler struct {
 	rpm      uint64
 }
 
-func NewAPIHandler(client *mongo.Client, proxy *httputil.ReverseProxy, limiter *limiter.RateLimiter, cfg *config.Config, mlURL, originURL, wafPublicIP string, unconfiguredPage []byte) *APIHandler {
+func NewAPIHandler(client *mongo.Client, proxy *httputil.ReverseProxy, limiter *limiter.RateLimiter, mlURL, originURL, wafPublicIP string, unconfiguredPage []byte) *APIHandler {
 	h := &APIHandler{
 		MongoClient:      client,
 		Proxy:            proxy,
 		RateLimiter:      limiter,
-		Config:           cfg,
 		MLURL:            mlURL,
 		OriginURL:        originURL,
 		WafPublicIP:      wafPublicIP,
@@ -65,6 +66,15 @@ func NewAPIHandler(client *mongo.Client, proxy *httputil.ReverseProxy, limiter *
 	go h.startStatsTicker()
 
 	return h
+}
+
+func (h *APIHandler) WriteJSONError(w http.ResponseWriter, message string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "error",
+		"message": message,
+	})
 }
 
 // ReloadRules: Merges Rules and Updates Domain Cache

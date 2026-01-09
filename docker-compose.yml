@@ -12,20 +12,17 @@ services:
     depends_on:
       dns_db:
         condition: service_healthy
-      ml_scorer:
-        condition: service_healthy
     environment:
       - MONGO_URI=${MONGO_URI}
       - ML_URL=http://ml_scorer:8000/predict
       - DNS_DB_HOST=dns_db
-      - DNS_DB_USER=${DNS_DB_USER:-pdns}
-      - DNS_DB_PASS=${DNS_DB_PASSWORD:-pdns_password}
-      - DNS_DB_NAME=${DNS_DB_NAME:-powerdns}
+      - DNS_DB_USER=pdns
+      - DNS_DB_PASS=pdns_password
+      - DNS_DB_NAME=powerdns
       - FRONTEND_URL=${FRONTEND_URL}
-      - WAF_PUBLIC_IP=${WAF_PUBLIC_IP:-64.227.156.70}
-      - JWT_SECRET=${JWT_SECRET:-super_secret_waf_key_change_me}
+      - WAF_PUBLIC_IP=64.227.156.70 # Add your Droplet IP here
     volumes:
-      - certs_volume:/app/certs # Persist SSL certificates so they survive restarts!
+      - ./certs:/app/certs # Persist SSL certificates so they survive restarts!
     networks:
       - waf_net
 
@@ -35,13 +32,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - MODEL_PATH=/app/waf_model.pkl
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      - MODEL_PATH=/app/model.pkl
     networks:
       - waf_net
 
@@ -49,10 +40,10 @@ services:
     image: mariadb:10.11
     container_name: dns_sql_db
     environment:
-      MYSQL_ROOT_PASSWORD: ${DNS_DB_ROOT_PASSWORD:-root_password}
-      MYSQL_DATABASE: ${DNS_DB_NAME:-powerdns}
-      MYSQL_USER: ${DNS_DB_USER:-pdns}
-      MYSQL_PASSWORD: ${DNS_DB_PASSWORD:-pdns_password}
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: powerdns
+      MYSQL_USER: pdns
+      MYSQL_PASSWORD: pdns_password
     volumes:
       - ./dns/schema.sql:/docker-entrypoint-initdb.d/schema.sql
       - dns_data:/var/lib/mysql
@@ -66,7 +57,7 @@ services:
           "localhost",
           "-u",
           "root",
-          "-p${DNS_DB_ROOT_PASSWORD:-root_password}",
+          "-proot_password",
         ]
       interval: 5s
       timeout: 5s
@@ -75,7 +66,7 @@ services:
       - waf_net
 
   pdns_server:
-    build: ./dns
+    image: powerdns/pdns-auth-48:4.8.0
     container_name: pdns_server
     ports:
       - "53:53/udp"
@@ -84,11 +75,8 @@ services:
     depends_on:
       dns_db:
         condition: service_healthy
-    environment:
-      - DNS_DB_HOST=dns_db
-      - DNS_DB_USER=${DNS_DB_USER:-pdns}
-      - DNS_DB_PASSWORD=${DNS_DB_PASSWORD:-pdns_password}
-      - DNS_DB_NAME=${DNS_DB_NAME:-powerdns}
+    volumes:
+      - ./dns/pdns.conf:/etc/powerdns/pdns.conf
     restart: unless-stopped
     networks:
       - waf_net
@@ -99,7 +87,6 @@ services:
 
 volumes:
   dns_data:
-  certs_volume:
 
 networks:
   waf_net:

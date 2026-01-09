@@ -1,3 +1,5 @@
+// type: uploaded file
+// fileName: jiniyasshah/web-app-firewall-ml-detection/web-app-firewall-ml-detection-test/gateway/internal/api/logs.go
 package api
 
 import (
@@ -8,16 +10,10 @@ import (
 
 	"web-app-firewall-ml-detection/internal/database"
 	"web-app-firewall-ml-detection/internal/logger"
-	"web-app-firewall-ml-detection/pkg/middleware"
-	"web-app-firewall-ml-detection/pkg/response"
 )
 
 func (h *APIHandler) SecuredLogsHandler(w http.ResponseWriter, r *http.Request) {
-	userID, ok := middleware.GetUserID(r)
-	if !ok {
-		response.InternalServerError(w, "Server Error")
-		return
-	}
+	userID := r.Context().Value("user_id").(string)
 
 	// 1. Parse Query Params
 	query := r.URL.Query()
@@ -41,12 +37,13 @@ func (h *APIHandler) SecuredLogsHandler(w http.ResponseWriter, r *http.Request) 
 
 	result, err := database.GetLogs(h.MongoClient, filter)
 	if err != nil {
-		response.InternalServerError(w, "Failed to fetch logs: " + err.Error())
+		h.WriteJSONError(w, "Failed to fetch logs: " + err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// 3. Return Standardized JSON
-	response.JSON(w, result, http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
 func (h *APIHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {

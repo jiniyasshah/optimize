@@ -1,17 +1,14 @@
 # Use a specific Go runtime version as a parent image
-FROM golang:1.22-alpine
+FROM golang:1.25.4-alpine
 
 # Set the current working directory inside the container
 WORKDIR /app
 
-# Copy go mod files first for better caching
-COPY go.mod go.sum ./
-
-# Download dependencies (already handled by go.mod and go.sum)
-RUN go mod download || true
-
-# Copy the rest of the code
+# Copy the Go code into the container at /app
 COPY . .
+
+# Get dependencies (in case you have any Go modules)
+RUN go mod tidy
 
 # Build the Go binary
 RUN go build -o main ./cmd/server/main.go
