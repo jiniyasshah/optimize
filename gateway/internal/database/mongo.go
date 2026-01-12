@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"time"
 
-	"web-app-firewall-ml-detection/internal/detector"
+	"web-app-firewall-ml-detection/internal/models"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -19,8 +19,6 @@ const (
 	DBName          = "waf"
 	TimeoutDuration = 5 * time.Second
 )
-
-
 
 // Connect initializes the MongoDB client
 func Connect(uri string) (*mongo.Client, error) {
@@ -41,12 +39,12 @@ func Connect(uri string) (*mongo.Client, error) {
 // USER MANAGEMENT
 // ---------------------------------------------------------
 
-func CreateUser(client *mongo.Client, user detector.User) error {
+func CreateUser(client *mongo.Client, user models.User) error {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
 	// Check if email exists
-	var existing detector.User
+	var existing models.User
 	err := client.Database(DBName).Collection("users").FindOne(ctx, bson.M{"email": user.Email}).Decode(&existing)
 	if err == nil {
 		return errors.New("email already registered")
@@ -59,11 +57,11 @@ func CreateUser(client *mongo.Client, user detector.User) error {
 	return err
 }
 
-func GetUserByEmail(client *mongo.Client, email string) (*detector.User, error) {
+func GetUserByEmail(client *mongo.Client, email string) (*models.User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
-	var user detector.User
+	var user models.User
 	err := client.Database(DBName).Collection("users").FindOne(ctx, bson.M{"email": email}).Decode(&user)
 	if err != nil {
 		return nil, err
@@ -71,11 +69,11 @@ func GetUserByEmail(client *mongo.Client, email string) (*detector.User, error) 
 	return &user, nil
 }
 
-func GetUserByID(client *mongo.Client, id string) (*detector.User, error) {
+func GetUserByID(client *mongo.Client, id string) (*models.User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
-	var user detector.User
+	var user models.User
 	err := client.Database(DBName).Collection("users").FindOne(ctx, bson.M{"_id": id}).Decode(&user)
 	if err != nil {
 		return nil, err
@@ -87,7 +85,7 @@ func GetUserByID(client *mongo.Client, id string) (*detector.User, error) {
 // DOMAIN MANAGEMENT
 // ---------------------------------------------------------
 
-func CreateDomain(client *mongo.Client, domain detector.Domain) (detector.Domain, error) {
+func CreateDomain(client *mongo.Client, domain models.Domain) (models.Domain, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
@@ -98,13 +96,13 @@ func CreateDomain(client *mongo.Client, domain detector.Domain) (detector.Domain
 
 	_, err := client.Database(DBName).Collection("domains").InsertOne(ctx, domain)
 	if err != nil {
-		return detector.Domain{}, err
+		return models.Domain{}, err
 	}
 
 	return domain, nil
 }
 
-func GetDomainsByUser(client *mongo.Client, userID string) ([]detector.Domain, error) {
+func GetDomainsByUser(client *mongo.Client, userID string) ([]models.Domain, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
@@ -114,7 +112,7 @@ func GetDomainsByUser(client *mongo.Client, userID string) ([]detector.Domain, e
 	}
 	defer cursor.Close(ctx)
 
-	var domains []detector.Domain
+	var domains []models.Domain
 	if err = cursor.All(ctx, &domains); err != nil {
 		return nil, err
 	}
@@ -122,12 +120,12 @@ func GetDomainsByUser(client *mongo.Client, userID string) ([]detector.Domain, e
 }
 
 // GetDomainByName finds config based on Host header (e.g., "example.com")
-func GetDomainByName(client *mongo.Client, host string) (*detector.Domain, error) {
+func GetDomainByName(client *mongo.Client, host string) (*models.Domain, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	var domain detector.Domain
-	
+	var domain models.Domain
+
 	// CRITICAL FIX: Only match domains that are ACTIVE.
 	// This prevents a "pending" duplicate domain from intercepting logs/traffic.
 	filter := bson.M{
@@ -142,11 +140,11 @@ func GetDomainByName(client *mongo.Client, host string) (*detector.Domain, error
 	return &domain, nil
 }
 
-func GetDomainByID(client *mongo.Client, id string) (*detector.Domain, error) {
+func GetDomainByID(client *mongo.Client, id string) (*models.Domain, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
-	var domain detector.Domain
+	var domain models.Domain
 	err := client.Database(DBName).Collection("domains").FindOne(ctx, bson.M{"_id": id}).Decode(&domain)
 	if err != nil {
 		return nil, err
@@ -159,16 +157,16 @@ func GetDomainByID(client *mongo.Client, id string) (*detector.Domain, error) {
 // ---------------------------------------------------------
 
 type DNSRecord struct {
-	ID        string    `bson:"_id,omitempty" json:"id"`
-	DomainID  string    `bson:"domain_id" json:"domain_id"`
-	Name      string    `bson:"name" json:"name"`
-	Type      string    `bson:"type" json:"type"`
-	Content   string    `bson:"content" json:"content"`
-	TTL       int       `bson:"ttl" json:"ttl"`
-	Proxied   bool      `bson:"proxied" json:"proxied"`
-    
-    // [ADD THIS LINE]
-	OriginSSL bool      `bson:"origin_ssl" json:"origin_ssl"` 
+	ID       string `bson:"_id,omitempty" json:"id"`
+	DomainID string `bson:"domain_id" json:"domain_id"`
+	Name     string `bson:"name" json:"name"`
+	Type     string `bson:"type" json:"type"`
+	Content  string `bson:"content" json:"content"`
+	TTL      int    `bson:"ttl" json:"ttl"`
+	Proxied  bool   `bson:"proxied" json:"proxied"`
+
+	// [ADD THIS LINE]
+	OriginSSL bool `bson:"origin_ssl" json:"origin_ssl"`
 
 	CreatedAt time.Time `bson:"created_at" json:"created_at"`
 }
@@ -283,7 +281,7 @@ func UpdateDNSRecordProxy(client *mongo.Client, recordID string, proxied bool) e
 }
 
 func GetOriginIP(client *mongo.Client, host string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) 
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	var record DNSRecord
@@ -315,7 +313,7 @@ func GetOriginIP(client *mongo.Client, host string) (string, error) {
 // RULE MANAGEMENT
 // ---------------------------------------------------------
 
-func GetRules(client *mongo.Client, filter bson.M) ([]detector.WAFRule, error) {
+func GetRules(client *mongo.Client, filter bson.M) ([]models.WAFRule, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
@@ -326,19 +324,19 @@ func GetRules(client *mongo.Client, filter bson.M) ([]detector.WAFRule, error) {
 	}
 	defer cursor.Close(ctx)
 
-	var rules []detector.WAFRule
+	var rules []models.WAFRule
 	if err = cursor.All(ctx, &rules); err != nil {
 		return nil, err
 	}
 
 	if rules == nil {
-		rules = []detector.WAFRule{}
+		rules = []models.WAFRule{}
 	}
 
 	return compileRegexes(rules), nil
 }
 
-func AddRule(client *mongo.Client, rule detector.WAFRule) error {
+func AddRule(client *mongo.Client, rule models.WAFRule) error {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
@@ -349,7 +347,7 @@ func AddRule(client *mongo.Client, rule detector.WAFRule) error {
 	return err
 }
 
-func UpdateRule(client *mongo.Client, rule detector.WAFRule) error {
+func UpdateRule(client *mongo.Client, rule models.WAFRule) error {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
@@ -378,7 +376,7 @@ func DeleteRule(client *mongo.Client, ruleID, ownerID string) error {
 // POLICY MANAGEMENT (Overrides)
 // ---------------------------------------------------------
 
-func GetPoliciesByUser(client *mongo.Client, userID string) ([]detector.RulePolicy, error) {
+func GetPoliciesByUser(client *mongo.Client, userID string) ([]models.RulePolicy, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
@@ -388,14 +386,14 @@ func GetPoliciesByUser(client *mongo.Client, userID string) ([]detector.RulePoli
 	}
 	defer cursor.Close(ctx)
 
-	var policies []detector.RulePolicy
+	var policies []models.RulePolicy
 	if err = cursor.All(ctx, &policies); err != nil {
 		return nil, err
 	}
 	return policies, nil
 }
 
-func UpsertRulePolicy(client *mongo.Client, policy detector.RulePolicy) error {
+func UpsertRulePolicy(client *mongo.Client, policy models.RulePolicy) error {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
@@ -425,7 +423,7 @@ type LogFilter struct {
 
 type PaginatedLogs struct {
 	// [CRITICAL FIX] Use specific struct, NOT interface{}
-	Data       []detector.AttackLog `json:"data"` 
+	Data       []models.AttackLog `json:"data"`
 	Pagination struct {
 		CurrentPage int64 `json:"current_page"`
 		TotalPages  int64 `json:"total_pages"`
@@ -459,8 +457,12 @@ func GetLogs(client *mongo.Client, filter LogFilter) (*PaginatedLogs, error) {
 		return nil, err
 	}
 
-	if filter.Page < 1 { filter.Page = 1 }
-	if filter.Limit < 1 { filter.Limit = 20 }
+	if filter.Page < 1 {
+		filter.Page = 1
+	}
+	if filter.Limit < 1 {
+		filter.Limit = 20
+	}
 	skip := (filter.Page - 1) * filter.Limit
 	totalPages := int64(0)
 	if filter.Limit > 0 {
@@ -479,12 +481,12 @@ func GetLogs(client *mongo.Client, filter LogFilter) (*PaginatedLogs, error) {
 	defer cursor.Close(ctx)
 
 	// [CRITICAL FIX] Decode into the struct to get clean JSON
-	var logs []detector.AttackLog
+	var logs []models.AttackLog
 	if err = cursor.All(ctx, &logs); err != nil {
 		return nil, err
 	}
 	if logs == nil {
-		logs = []detector.AttackLog{}
+		logs = []models.AttackLog{}
 	}
 
 	return &PaginatedLogs{
@@ -505,29 +507,37 @@ func GetLogs(client *mongo.Client, filter LogFilter) (*PaginatedLogs, error) {
 
 // --- GLOBAL FETCH HELPERS (For API Cache Reload) ---
 
-func GetAllDomains(client *mongo.Client) ([]detector.Domain, error) {
+func GetAllDomains(client *mongo.Client) ([]models.Domain, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
 	cursor, err := client.Database(DBName).Collection("domains").Find(ctx, bson.M{})
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer cursor.Close(ctx)
 
-	var domains []detector.Domain
-	if err = cursor.All(ctx, &domains); err != nil { return nil, err }
+	var domains []models.Domain
+	if err = cursor.All(ctx, &domains); err != nil {
+		return nil, err
+	}
 	return domains, nil
 }
 
-func GetAllPolicies(client *mongo.Client) ([]detector.RulePolicy, error) {
+func GetAllPolicies(client *mongo.Client) ([]models.RulePolicy, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 
 	cursor, err := client.Database(DBName).Collection("rule_policies").Find(ctx, bson.M{})
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer cursor.Close(ctx)
 
-	var policies []detector.RulePolicy
-	if err = cursor.All(ctx, &policies); err != nil { return nil, err }
+	var policies []models.RulePolicy
+	if err = cursor.All(ctx, &policies); err != nil {
+		return nil, err
+	}
 	return policies, nil
 }
 
@@ -537,10 +547,10 @@ func UpdateDomainStatus(client *mongo.Client, domainID, status string) error {
 
 	collection := client.Database("waf").Collection("domains")
 	filter := bson.M{"_id": domainID}
-	
+
 	update := bson.M{
 		"$set": bson.M{
-			"status": status,
+			"status":     status,
 			"updated_at": time.Now(),
 		},
 	}
@@ -552,7 +562,7 @@ func UpdateDomainStatus(client *mongo.Client, domainID, status string) error {
 // HELPERS
 // ---------------------------------------------------------
 
-func compileRegexes(rules []detector.WAFRule) []detector.WAFRule {
+func compileRegexes(rules []models.WAFRule) []models.WAFRule {
 	for i := range rules {
 		for j := range rules[i].Conditions {
 			cond := &rules[i].Conditions[j]
@@ -575,16 +585,16 @@ func IsHostAllowed(client *mongo.Client, host string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	var domain detector.Domain
+	var domain models.Domain
 	err := client.Database(DBName).Collection("domains").FindOne(ctx, bson.M{"name": host}).Decode(&domain)
 	if err == nil {
-		return true 
+		return true
 	}
 
 	var record DNSRecord
 	err = client.Database(DBName).Collection("dns_records").FindOne(ctx, bson.M{"name": host}).Decode(&record)
 	if err == nil {
-		return true 
+		return true
 	}
 
 	return false
@@ -606,7 +616,7 @@ func RevokeOldOwnership(client *mongo.Client, domainName string, newOwnerID stri
 }
 
 func GetOriginRecord(client *mongo.Client, host string) (*DNSRecord, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) 
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	var record DNSRecord
@@ -633,7 +643,6 @@ func GetOriginRecord(client *mongo.Client, host string) (*DNSRecord, error) {
 
 	return nil, err
 }
-
 
 // Add this function to the end of the file
 

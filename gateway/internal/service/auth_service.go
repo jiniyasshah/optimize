@@ -6,7 +6,7 @@ import (
 
 	"web-app-firewall-ml-detection/internal/config"
 	"web-app-firewall-ml-detection/internal/database"
-	"web-app-firewall-ml-detection/internal/detector"
+	"web-app-firewall-ml-detection/internal/models"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -22,12 +22,12 @@ func NewAuthService(client *mongo.Client, cfg *config.Config) *AuthService {
 	return &AuthService{Mongo: client, Cfg: cfg}
 }
 
-func (s *AuthService) Register(input detector.UserInput) error {
+func (s *AuthService) Register(input models.UserInput) error {
 	hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), 10)
 	if err != nil {
 		return err
 	}
-	user := detector.User{
+	user := models.User{
 		Name:     input.Name,
 		Email:    input.Email,
 		Password: string(hashed),
@@ -35,7 +35,7 @@ func (s *AuthService) Register(input detector.UserInput) error {
 	return database.CreateUser(s.Mongo, user)
 }
 
-func (s *AuthService) Login(email, password string) (string, *detector.User, error) {
+func (s *AuthService) Login(email, password string) (string, *models.User, error) {
 	user, err := database.GetUserByEmail(s.Mongo, email)
 	if err != nil {
 		return "", nil, errors.New("invalid credentials")
@@ -60,6 +60,6 @@ func (s *AuthService) Login(email, password string) (string, *detector.User, err
 	return tokenString, user, nil
 }
 
-func (s *AuthService) GetUser(userID string) (*detector.User, error) {
+func (s *AuthService) GetUser(userID string) (*models.User, error) {
 	return database.GetUserByID(s.Mongo, userID)
 }

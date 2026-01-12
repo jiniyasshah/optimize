@@ -1,4 +1,4 @@
-package detector
+package models
 
 import (
 	"regexp"

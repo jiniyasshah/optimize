@@ -9,7 +9,7 @@ import (
 
 	"web-app-firewall-ml-detection/internal/config"
 	"web-app-firewall-ml-detection/internal/database"
-	"web-app-firewall-ml-detection/internal/detector" // [ADDED]
+	"web-app-firewall-ml-detection/internal/models" // [ADDED]
 
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -122,8 +122,8 @@ func (s *DNSService) AddRecord(req database.DNSRecord, userID string) (*database
 	return &newRecord, nil
 }
 
-// [UPDATED] Uses detector.DNSUpdateRequest instead of anonymous struct
-func (s *DNSService) UpdateRecord(recordID, userID string, updateReq detector.DNSUpdateRequest) (map[string]interface{}, error) {
+// [UPDATED] Uses models.DNSUpdateRequest instead of anonymous struct
+func (s *DNSService) UpdateRecord(recordID, userID string, updateReq models.DNSUpdateRequest) (map[string]interface{}, error) {
 
 	// 1. Fetch & Verify
 	record, err := database.GetDNSRecordByID(s.Mongo, recordID)
@@ -145,11 +145,11 @@ func (s *DNSService) UpdateRecord(recordID, userID string, updateReq detector.DN
 	}
 
 	// --- BRANCH 2: Proxy Status Update ---
-	
+
 	// A. Calculate Deletion for Old State
 	contentToDelete := record.Content
 	typeToDelete := record.Type
-	
+
 	shouldHaveBeenProxied := record.Proxied
 	if isNonProxiable(record.Type) {
 		shouldHaveBeenProxied = false
@@ -261,7 +261,7 @@ func (s *DNSService) checkConflicts(domainID, name, rType, content string) error
 		if exists {
 			return errors.New("CNAME record already exists for this hostname")
 		}
-		
+
 		// Check duplicates
 		exists, err = database.CheckDuplicateDNSRecord(s.Mongo, domainID, name, rType, content)
 		if err != nil {

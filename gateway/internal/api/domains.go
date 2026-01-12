@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"web-app-firewall-ml-detection/internal/detector"
+	"web-app-firewall-ml-detection/internal/models"
 	"web-app-firewall-ml-detection/internal/service"
 	"web-app-firewall-ml-detection/internal/utils"
 )
@@ -29,8 +29,8 @@ func (h *DomainHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 
 func (h *DomainHandler) AddDomain(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
-	
-	var input detector.DomainInput
+
+	var input models.DomainInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		utils.WriteError(w, "Invalid input", http.StatusBadRequest)
 		return
@@ -41,13 +41,13 @@ func (h *DomainHandler) AddDomain(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	
+
 	utils.WriteSuccess(w, domain, http.StatusCreated)
 }
 
 func (h *DomainHandler) Verify(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
-	
+
 	// We expect ?id=<domain_id> query param like the original code
 	domainID := r.URL.Query().Get("id")
 	if domainID == "" {

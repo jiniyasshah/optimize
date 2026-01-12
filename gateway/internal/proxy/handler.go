@@ -15,6 +15,7 @@ import (
 	"web-app-firewall-ml-detection/internal/detector"
 	"web-app-firewall-ml-detection/internal/limiter"
 	"web-app-firewall-ml-detection/internal/logger"
+	"web-app-firewall-ml-detection/internal/models" // [CRITICAL] Uses new models package
 	"web-app-firewall-ml-detection/internal/service"
 )
 
@@ -23,9 +24,9 @@ type WAFHandler struct {
 	Proxy       *httputil.ReverseProxy
 	RateLimiter *limiter.RateLimiter
 	Cfg         *config.Config
-	
+
 	UnconfiguredPage []byte
-	
+
 	// Stats for System Status
 	reqCount uint64 // Live counter
 	rpm      uint64 // Calculated RPM (Requests Per Minute)
@@ -40,7 +41,7 @@ func NewWAFHandler(svc *service.WAFService, proxy *httputil.ReverseProxy, rl *li
 		UnconfiguredPage: page404,
 	}
 
-	// Start Background Stats Ticker
+	// Start Background Stats Ticker for RPM calculation
 	go h.startStatsTicker()
 
 	return h
@@ -48,6 +49,7 @@ func NewWAFHandler(svc *service.WAFService, proxy *httputil.ReverseProxy, rl *li
 
 func (h *WAFHandler) startStatsTicker() {
 	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
 	for range ticker.C {
 		// Atomic swap to reset count and store last minute's value
 		count := atomic.SwapUint64(&h.reqCount, 0)
@@ -60,90 +62,7 @@ func (h *WAFHandler) GetRPM() uint64 {
 	return atomic.LoadUint64(&h.rpm)
 }
 
-func (h *WAFHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	atomic.AddUint64(&h.reqCount, 1)
-	clientIP := getRealIP(r)
-
-	// Buffer Body for Analysis
-	bodyBytes, _ := io.ReadAll(r.Body)
-	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-
-	host := getHost(r)
-
-	// 1. Get Rules & Metadata from Service
-	rules, domainInfo, configured := h.Service.GetRoutingInfo(host)
-
-	if !configured {
-		log.Printf("⚠️ Unknown Domain: %s. Returning 404.", host)
-		w.Header().Set("Content-Type", "text/html")
-		w.WriteHeader(http.StatusNotFound)
-		if len(h.UnconfiguredPage) > 0 {
-			w.Write(h.UnconfiguredPage)
-		} else {
-			w.Write([]byte("Domain not configured"))
-		}
-		return
-	}
-
-	// 2. Rate Limit Check
-	limitReached := h.RateLimiter.IsRateLimited(clientIP)
-
-	// 3. Rule Engine Check
-	ruleScore, triggeredTags, ruleBlock, rulePayload := detector.CheckRequest(r, rules, limitReached)
-
-	// 4. ML Engine Check
-	var isAnomaly bool
-	var confidence float64
-	var mlTag, mlTrigger string
-
-	if !ruleBlock && ruleScore < 15 {
-		isAnomaly, confidence, mlTag, mlTrigger = detector.CheckML(r, bodyBytes, h.Cfg.MLURL)
-	}
-
-	// 5. Decision
-	verdict, reason, source := detector.Decide(ruleScore, ruleBlock, isAnomaly, confidence)
-
-	if mlTag != "" && mlTag != "Normal" && (isAnomaly || confidence > 0.60) {
-		triggeredTags = append(triggeredTags, mlTag)
-	}
-
-	finalTrigger := rulePayload
-	if source == "ML Engine" || (source == "Hybrid" && mlTrigger != "") {
-		finalTrigger = mlTrigger
-	}
-
-	// 6. Logging
-	headers := make(map[string][]string)
-	for k, v := range r.Header {
-		headers[k] = v
-	}
-	headers["Host"] = []string{host}
-
-	fullReq := detector.FullRequest{
-		Method:  r.Method,
-		URL:     r.URL.String(),
-		Headers: headers,
-		Body:    string(bodyBytes),
-	}
-
-	switch verdict {
-	case detector.Block:
-		log.Printf("⛔ BLOCKED IP: %s | Host: %s | Reason: %s", clientIP, host, reason)
-		logger.LogAttack(domainInfo.UserID, domainInfo.ID, clientIP, r.URL.Path, reason, "Blocked", source, triggeredTags, ruleScore, confidence, fullReq, finalTrigger)
-		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("WAF Blocked: " + reason))
-
-	case detector.Monitor:
-		log.Printf("⚠️ FLAGGED IP: %s | Host: %s", clientIP, host)
-		logger.LogAttack(domainInfo.UserID, domainInfo.ID, clientIP, r.URL.Path, reason, "Flagged", source, triggeredTags, ruleScore, confidence, fullReq, finalTrigger)
-		h.Proxy.ServeHTTP(w, r)
-
-	case detector.Allow:
-		h.Proxy.ServeHTTP(w, r)
-	}
-}
-
-// Helpers
+// Helper to extract IP
 func getRealIP(r *http.Request) string {
 	xff := r.Header.Get("X-Forwarded-For")
 	if xff != "" {
@@ -165,4 +84,89 @@ func getHost(r *http.Request) string {
 		}
 	}
 	return host
+}
+
+func (h *WAFHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	atomic.AddUint64(&h.reqCount, 1)
+	clientIP := getRealIP(r)
+
+	// Buffer Body for Analysis
+	bodyBytes, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+	host := getHost(r)
+
+	// 1. Get Rules & Metadata from Service (Replaces old mutex lookup)
+	rules, domainInfo, configured := h.Service.GetRoutingInfo(host)
+
+	// 2. UNCONFIGURED DOMAIN CHECK
+	if !configured {
+		log.Printf("⚠️ Unknown Domain: %s. Returning 404.", host)
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusNotFound)
+		if len(h.UnconfiguredPage) > 0 {
+			w.Write(h.UnconfiguredPage)
+		} else {
+			w.Write([]byte("Domain not configured"))
+		}
+		return
+	}
+
+	// 3. Rate Limit Check
+	limitReached := h.RateLimiter.IsRateLimited(clientIP)
+
+	// 4. Rule Engine Check
+	ruleScore, triggeredTags, ruleBlock, rulePayload := detector.CheckRequest(r, rules, limitReached)
+
+	// 5. ML Engine Check
+	var isAnomaly bool
+	var confidence float64
+	var mlTag, mlTrigger string
+
+	if !ruleBlock && ruleScore < 15 {
+		isAnomaly, confidence, mlTag, mlTrigger = detector.CheckML(r, bodyBytes, h.Cfg.MLURL)
+	}
+
+	// 6. Final Decision
+	verdict, reason, source := detector.Decide(ruleScore, ruleBlock, isAnomaly, confidence)
+
+	if mlTag != "" && mlTag != "Normal" && (isAnomaly || confidence > 0.60) {
+		triggeredTags = append(triggeredTags, mlTag)
+	}
+
+	finalTrigger := rulePayload
+	if source == "ML Engine" || (source == "Hybrid" && mlTrigger != "") {
+		finalTrigger = mlTrigger
+	}
+
+	// 7. Logging & Action
+	headers := make(map[string][]string)
+	for k, v := range r.Header {
+		headers[k] = v
+	}
+	headers["Host"] = []string{host}
+
+	// [FIX] Use models.FullRequest (not detector.FullRequest)
+	fullReq := models.FullRequest{
+		Method:  r.Method,
+		URL:     r.URL.String(),
+		Headers: headers,
+		Body:    string(bodyBytes),
+	}
+
+	switch verdict {
+	case detector.Block:
+		log.Printf("⛔ BLOCKED IP: %s | Host: %s | Reason: %s", clientIP, host, reason)
+		logger.LogAttack(domainInfo.UserID, domainInfo.ID, clientIP, r.URL.Path, reason, "Blocked", source, triggeredTags, ruleScore, confidence, fullReq, finalTrigger)
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("WAF Blocked: " + reason))
+
+	case detector.Monitor:
+		log.Printf("⚠️ FLAGGED IP: %s | Host: %s", clientIP, host)
+		logger.LogAttack(domainInfo.UserID, domainInfo.ID, clientIP, r.URL.Path, reason, "Flagged", source, triggeredTags, ruleScore, confidence, fullReq, finalTrigger)
+		h.Proxy.ServeHTTP(w, r)
+
+	case detector.Allow:
+		h.Proxy.ServeHTTP(w, r)
+	}
 }

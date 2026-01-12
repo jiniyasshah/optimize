@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"web-app-firewall-ml-detection/internal/detector"
+	"web-app-firewall-ml-detection/internal/models"
 	"web-app-firewall-ml-detection/internal/service"
 	"web-app-firewall-ml-detection/internal/utils"
 
@@ -22,7 +22,7 @@ func NewAuthHandler(s *service.AuthService) *AuthHandler {
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	var input detector.UserInput
+	var input models.UserInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		utils.WriteError(w, "Invalid input", http.StatusBadRequest)
 		return
@@ -35,7 +35,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
-	var input detector.UserInput
+	var input models.UserInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		utils.WriteError(w, "Invalid input", http.StatusBadRequest)
 		return

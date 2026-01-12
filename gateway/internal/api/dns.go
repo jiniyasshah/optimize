@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"web-app-firewall-ml-detection/internal/database"
-	"web-app-firewall-ml-detection/internal/detector" // [ADDED]
+	"web-app-firewall-ml-detection/internal/models" // [ADDED]
 	"web-app-firewall-ml-detection/internal/service"
 	"web-app-firewall-ml-detection/internal/utils"
 )
@@ -37,7 +37,7 @@ func (h *DNSHandler) ManageRecords(w http.ResponseWriter, r *http.Request) {
 func (h *DNSHandler) listRecords(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 	domainID := r.URL.Query().Get("domain_id")
-	
+
 	if domainID == "" {
 		utils.WriteError(w, "domain_id is required", http.StatusBadRequest)
 		return
@@ -53,7 +53,7 @@ func (h *DNSHandler) listRecords(w http.ResponseWriter, r *http.Request) {
 
 func (h *DNSHandler) addRecord(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
-	
+
 	var req database.DNSRecord
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, "Invalid JSON", http.StatusBadRequest)
@@ -82,14 +82,14 @@ func (h *DNSHandler) addRecord(w http.ResponseWriter, r *http.Request) {
 func (h *DNSHandler) updateRecord(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 	recordID := r.URL.Query().Get("record_id")
-	
+
 	if recordID == "" {
 		utils.WriteError(w, "record_id is required", http.StatusBadRequest)
 		return
 	}
 
 	// [UPDATED] Use the shared named struct
-	var req detector.DNSUpdateRequest
+	var req models.DNSUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, "Invalid JSON", http.StatusBadRequest)
 		return

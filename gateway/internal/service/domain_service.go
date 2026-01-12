@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"web-app-firewall-ml-detection/internal/database"
-	"web-app-firewall-ml-detection/internal/detector"
+	"web-app-firewall-ml-detection/internal/models"
 
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -39,11 +39,11 @@ func NewDomainService(client *mongo.Client) *DomainService {
 	return &DomainService{Mongo: client}
 }
 
-func (s *DomainService) ListDomains(userID string) ([]detector.Domain, error) {
+func (s *DomainService) ListDomains(userID string) ([]models.Domain, error) {
 	return database.GetDomainsByUser(s.Mongo, userID)
 }
 
-func (s *DomainService) AddDomain(input detector.DomainInput, userID string) (*detector.Domain, error) {
+func (s *DomainService) AddDomain(input models.DomainInput, userID string) (*models.Domain, error) {
 	// 1. Strict Subdomain Policy Check
 	rootZone := getRootDomain(input.Name)
 	if rootZone != input.Name {
@@ -65,7 +65,7 @@ func (s *DomainService) AddDomain(input detector.DomainInput, userID string) (*d
 	ns1 := realNameservers[idx1] + nsSuffix
 	ns2 := realNameservers[idx2] + nsSuffix
 
-	domain := detector.Domain{
+	domain := models.Domain{
 		UserID:      userID,
 		Name:        input.Name,
 		Nameservers: []string{ns1, ns2},

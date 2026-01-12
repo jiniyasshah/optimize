@@ -6,7 +6,7 @@ import (
 	"sync"
 	"web-app-firewall-ml-detection/internal/config"
 	"web-app-firewall-ml-detection/internal/database"
-	"web-app-firewall-ml-detection/internal/detector"
+	"web-app-firewall-ml-detection/internal/models"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -23,24 +23,24 @@ type WAFService struct {
 
 	// Cache
 	mu             sync.RWMutex
-	domainRules    map[string][]detector.WAFRule
-	domainMap      map[string]detector.Domain
-	globalFallback []detector.WAFRule
+	domainRules    map[string][]models.WAFRule
+	domainMap      map[string]models.Domain
+	globalFallback []models.WAFRule
 }
 
 func NewWAFService(client *mongo.Client, cfg *config.Config) *WAFService {
 	s := &WAFService{
 		Mongo:       client,
 		Cfg:         cfg,
-		domainRules: make(map[string][]detector.WAFRule),
-		domainMap:   make(map[string]detector.Domain),
+		domainRules: make(map[string][]models.WAFRule),
+		domainMap:   make(map[string]models.Domain),
 	}
 	s.ReloadRules() // Load immediately on startup
 	return s
 }
 
 // GetRoutingInfo returns the rules and domain metadata for a specific host
-func (s *WAFService) GetRoutingInfo(host string) ([]detector.WAFRule, detector.Domain, bool) {
+func (s *WAFService) GetRoutingInfo(host string) ([]models.WAFRule, models.Domain, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -105,8 +105,8 @@ func (s *WAFService) ReloadRules() {
 	}
 
 	// 2. Build Domain Map
-	newDomainMap := make(map[string]detector.Domain)
-	activeDomainsByID := make(map[string]detector.Domain)
+	newDomainMap := make(map[string]models.Domain)
+	activeDomainsByID := make(map[string]models.Domain)
 
 	for _, d := range domains {
 		if d.Status == "active" {
@@ -123,8 +123,8 @@ func (s *WAFService) ReloadRules() {
 	s.domainMap = newDomainMap
 
 	// 3. Separate Rules
-	globalRules := []detector.WAFRule{}
-	privateRules := make(map[string][]detector.WAFRule)
+	globalRules := []models.WAFRule{}
+	privateRules := make(map[string][]models.WAFRule)
 
 	for _, r := range allRules {
 		if r.OwnerID == "" {
@@ -141,13 +141,13 @@ func (s *WAFService) ReloadRules() {
 	}
 
 	// 5. Build Effective Ruleset
-	newDomainRules := make(map[string][]detector.WAFRule)
+	newDomainRules := make(map[string][]models.WAFRule)
 	for _, d := range domains {
 		if d.Status != "active" {
 			continue
 		}
 
-		var effective []detector.WAFRule
+		var effective []models.WAFRule
 		// Global
 		for _, r := range globalRules {
 			if s.isEnabled(r.ID, d.ID, policyMap, true) {
