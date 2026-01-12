@@ -20,6 +20,8 @@ type UserInput struct {
 	Password string `json:"password"`
 }
 
+// --- DOMAIN MODELS ---
+
 type Domain struct {
 	ID          string    `bson:"_id,omitempty" json:"id"`
 	UserID      string    `bson:"user_id" json:"user_id"`
@@ -27,6 +29,10 @@ type Domain struct {
 	Nameservers []string  `bson:"nameservers" json:"nameservers"`
 	Status      string    `bson:"status" json:"status"`
 	CreatedAt   time.Time `bson:"created_at" json:"created_at"`
+}
+
+type DomainInput struct {
+	Name string `json:"name"`
 }
 
 type DNSRecord struct {
@@ -39,6 +45,13 @@ type DNSRecord struct {
 	Proxied   bool      `bson:"proxied" json:"proxied"`
 	OriginSSL bool      `bson:"origin_ssl" json:"origin_ssl"`
 	CreatedAt time.Time `bson:"created_at" json:"created_at"`
+}
+
+// [ADDED] This fixes your compilation error by providing a shared type
+type DNSUpdateRequest struct {
+	Action    string `json:"action"`
+	Proxied   bool   `json:"proxied"`
+	OriginSSL bool   `json:"origin_ssl"`
 }
 
 // --- WAF MODELS ---
@@ -60,6 +73,12 @@ type RulePolicy struct {
 	Enabled  bool   `bson:"enabled" json:"enabled"`
 }
 
+type PolicyInput struct {
+	RuleID   string `json:"rule_id"`
+	DomainID string `json:"domain_id"`
+	Enabled  bool   `json:"enabled"`
+}
+
 type Condition struct {
 	Field         string         `bson:"field" json:"field"`
 	Operator      string         `bson:"operator" json:"operator"`
@@ -73,7 +92,7 @@ type Action struct {
 	HardBlock bool     `bson:"hard_block" json:"hard_block"`
 }
 
-// --- LOGGING MODELS (Moved from logger/logger.go) ---
+// --- LOGGING MODELS ---
 
 type FullRequest struct {
 	Method  string              `bson:"method" json:"method"`
@@ -83,7 +102,7 @@ type FullRequest struct {
 }
 
 type AttackLog struct {
-	ID             interface{} `bson:"_id,omitempty" json:"_id"` // Matches MongoDB ID
+	ID             interface{} `bson:"_id,omitempty" json:"_id"`
 	UserID         string      `bson:"user_id" json:"user_id"`
 	DomainID       string      `bson:"domain_id" json:"domain_id"`
 	Timestamp      time.Time   `bson:"timestamp" json:"timestamp"`
