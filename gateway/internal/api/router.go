@@ -28,7 +28,9 @@ func NewRouter(
 	mux.HandleFunc("/api/auth/register", authHandler.Register)
 	mux.HandleFunc("/api/auth/login", authHandler.Login)
 	mux.HandleFunc("/api/auth/logout", authHandler.Logout)
+	mux.HandleFunc("/api/system/status", systemHandler.GetSystemStatus)
 	mux.HandleFunc("/api/auth/check", authHandler.Middleware(authHandler.CheckAuth))
+
 
 	// --- Domain Routes ---
 	mux.HandleFunc("/api/domains", authHandler.Middleware(domainHandler.ListDomains))
@@ -50,7 +52,7 @@ func NewRouter(
 
 	// --- System Status Routes [ADDED] ---
 	// (Usually protected, but can be open if needed for status pages)
-	mux.HandleFunc("/api/system/status", authHandler.Middleware(systemHandler.GetSystemStatus))
+	// mux.HandleFunc("/api/system/status", authHandler.Middleware(systemHandler.GetSystemStatus))
 
 	return middleware.CORS(cfg)(mux)
 }
