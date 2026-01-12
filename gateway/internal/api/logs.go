@@ -56,8 +56,6 @@ func (h *LogHandler) SSEHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	// CORS for SSE if needed
-	w.Header().Set("Access-Control-Allow-Origin", "*") 
 
 	logsCh := logger.GetBroadcastChannel()
 	
