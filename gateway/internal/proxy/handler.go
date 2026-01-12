@@ -9,6 +9,7 @@ import (
 	"net/http/httputil"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"web-app-firewall-ml-detection/internal/config"
 	"web-app-firewall-ml-detection/internal/detector"
@@ -25,22 +26,42 @@ type WAFHandler struct {
 	
 	UnconfiguredPage []byte
 	
-	// Stats
-	ReqCount uint64
+	// Stats for System Status
+	reqCount uint64 // Live counter
+	rpm      uint64 // Calculated RPM (Requests Per Minute)
 }
 
 func NewWAFHandler(svc *service.WAFService, proxy *httputil.ReverseProxy, rl *limiter.RateLimiter, cfg *config.Config, page404 []byte) *WAFHandler {
-	return &WAFHandler{
+	h := &WAFHandler{
 		Service:          svc,
 		Proxy:            proxy,
 		RateLimiter:      rl,
 		Cfg:              cfg,
 		UnconfiguredPage: page404,
 	}
+
+	// Start Background Stats Ticker
+	go h.startStatsTicker()
+
+	return h
+}
+
+func (h *WAFHandler) startStatsTicker() {
+	ticker := time.NewTicker(1 * time.Minute)
+	for range ticker.C {
+		// Atomic swap to reset count and store last minute's value
+		count := atomic.SwapUint64(&h.reqCount, 0)
+		atomic.StoreUint64(&h.rpm, count)
+	}
+}
+
+// GetRPM returns the requests per minute from the last interval
+func (h *WAFHandler) GetRPM() uint64 {
+	return atomic.LoadUint64(&h.rpm)
 }
 
 func (h *WAFHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	atomic.AddUint64(&h.ReqCount, 1)
+	atomic.AddUint64(&h.reqCount, 1)
 	clientIP := getRealIP(r)
 
 	// Buffer Body for Analysis

@@ -15,12 +15,13 @@ func NewRouter(
 	domainHandler *DomainHandler,
 	ruleHandler *RuleHandler,
 	dnsHandler *DNSHandler,
+	logHandler *LogHandler,       // [ADDED]
+	systemHandler *SystemHandler, // [ADDED]
 ) http.Handler {
 
 	mux := http.NewServeMux()
 
 	// --- WAF Traffic (Root) ---
-	// This captures all traffic to the proxied domains
 	mux.Handle("/", wafHandler)
 
 	// --- Auth Routes ---
@@ -33,7 +34,7 @@ func NewRouter(
 	mux.HandleFunc("/api/domains", authHandler.Middleware(domainHandler.ListDomains))
 	mux.HandleFunc("/api/domains/add", authHandler.Middleware(domainHandler.AddDomain))
 	mux.HandleFunc("/api/domains/verify", authHandler.Middleware(domainHandler.Verify))
-	
+
 	// --- DNS Routes ---
 	mux.HandleFunc("/api/dns/records", authHandler.Middleware(dnsHandler.ManageRecords))
 
@@ -43,6 +44,13 @@ func NewRouter(
 	mux.HandleFunc("/api/rules/custom/add", authHandler.Middleware(ruleHandler.AddCustom))
 	mux.HandleFunc("/api/rules/toggle", authHandler.Middleware(ruleHandler.Toggle))
 
-	// Apply Global Middleware (CORS)
+	// --- Log Routes [ADDED] ---
+	mux.HandleFunc("/api/logs", authHandler.Middleware(logHandler.GetLogs))
+	mux.HandleFunc("/api/logs/stream", logHandler.SSEHandler) // SSE usually doesn't use standard Auth header middleware
+
+	// --- System Status Routes [ADDED] ---
+	// (Usually protected, but can be open if needed for status pages)
+	mux.HandleFunc("/api/system/status", authHandler.Middleware(systemHandler.GetSystemStatus))
+
 	return middleware.CORS(cfg)(mux)
 }

@@ -41,7 +41,6 @@ func main() {
 	logger.Init(mongoClient, "waf")
 	rateLimiter := limiter.New(100, 1*time.Minute)
 
-	// Load Error Pages
 	page404, _ := os.ReadFile("pages/404.html")
 	if len(page404) == 0 {
 		page404 = []byte("404 Not Found")
@@ -59,26 +58,26 @@ func main() {
 	ruleService := service.NewRuleService(mongoClient)
 	dnsService := service.NewDNSService(mongoClient, cfg)
 
-	// 5. Initialize Handlers
+	// 5. Initialize Proxy (Created earlier so SystemHandler can use it)
+	reverseProxy := proxy.NewReverseProxy(wafService, page502)
+	wafHandler := proxy.NewWAFHandler(wafService, reverseProxy, rateLimiter, cfg, page404)
+
+	// 6. Initialize Handlers
 	authHandler := api.NewAuthHandler(authService)
 	domainHandler := api.NewDomainHandler(domainService)
 	ruleHandler := api.NewRuleHandler(ruleService)
 	dnsHandler := api.NewDNSHandler(dnsService)
-
-	// 6. Initialize Proxy
-	reverseProxy := proxy.NewReverseProxy(wafService, page502)
-	wafHandler := proxy.NewWAFHandler(wafService, reverseProxy, rateLimiter, cfg, page404)
+	logHandler := api.NewLogHandler(mongoClient)
+	systemHandler := api.NewSystemHandler(mongoClient, cfg, wafHandler) // Pass wafHandler for RPM
 
 	// 7. Router Setup
-	mainRouter := api.NewRouter(cfg, wafHandler, authHandler, domainHandler, ruleHandler, dnsHandler)
+	mainRouter := api.NewRouter(cfg, wafHandler, authHandler, domainHandler, ruleHandler, dnsHandler, logHandler, systemHandler)
 
 	// 8. HTTPS Auto-Cert Configuration
 	hostPolicy := func(ctx context.Context, host string) error {
-		// Allow Admin Domains
-		if host == "test2.minishield.tech" || host == "minishield.tech" {
+		if host == "api.minishield.tech" || host == "minishield.tech" {
 			return nil
 		}
-		// Allow User Domains (Check WAF Service Cache)
 		_, _, exists := wafService.GetRoutingInfo(host)
 		if exists {
 			return nil
@@ -95,7 +94,6 @@ func main() {
 	// 9. Start Servers
 	go func() {
 		log.Println("✅ Starting HTTP Server on :80 (ACME Challenge + Redirect)")
-		// The certManager.HTTPHandler automatically handles ACME challenges and redirects HTTP -> HTTPS
 		if err := http.ListenAndServe(":80", certManager.HTTPHandler(nil)); err != nil {
 			log.Fatalf("HTTP Server Failed: %v", err)
 		}
