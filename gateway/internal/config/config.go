@@ -11,12 +11,12 @@ type Config struct {
 	MongoURI       string
 	FrontendURL    string
 	AllowedOrigins []string
-	
+
 	// WAF Settings
 	OriginURL   string
 	MLURL       string
 	WafPublicIP string
-	
+
 	// DNS DB
 	DNSUser string
 	DNSPass string
@@ -28,23 +28,33 @@ type Config struct {
 }
 
 func Load() *Config {
+	appEnv := getEnv("APP_ENV", "development")
+	
+	// Base allowed origins from Env
+	frontendURL := getEnv("FRONTEND_URL", "https://www.minishield.tech")
+	origins := strings.Split(frontendURL, ",")
+
+	// Automatically allow localhost:3000 in development
+	if appEnv == "development" {
+		origins = append(origins, "http://localhost:3000")
+	}
+
 	return &Config{
-		AppEnv:         getEnv("APP_ENV", "development"),
+		AppEnv:         appEnv,
 		Port:           getEnv("PORT", "443"),
 		MongoURI:       getEnv("MONGO_URI", "mongodb://mongo:27017"),
-		FrontendURL:    getEnv("FRONTEND_URL", "https://www.minishield.tech"),
-		AllowedOrigins: strings.Split(getEnv("FRONTEND_URL", "https://www.minishield.tech"), ","),
-		
+		FrontendURL:    frontendURL,
+		AllowedOrigins: origins,
+
 		OriginURL:   getEnv("ORIGIN_URL", "http://origin:3000"),
 		MLURL:       getEnv("ML_URL", "http://ml_scorer:8000/predict"),
-		WafPublicIP: getEnv("WAF_PUBLIC_IP", "64.227.156.70"),
+		WafPublicIP: getEnv("WAF_PUBLIC_IP", "157.245.100.147"),
 
 		DNSUser: getEnv("DNS_DB_USER", "pdns"),
 		DNSPass: getEnv("DNS_DB_PASS", "pdns_password"),
 		DNSHost: getEnv("DNS_DB_HOST", "dns_sql_db"),
 		DNSName: getEnv("DNS_DB_NAME", "powerdns"),
 
-		// Ideally load this from a secure secret manager or ENV, never hardcode in prod
 		JWTSecret: getEnv("JWT_SECRET", "super_secret_waf_key_change_me"),
 	}
 }
