@@ -4,8 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"web-app-firewall-ml-detection/internal/database"
-	"web-app-firewall-ml-detection/internal/models" // [ADDED]
+	"web-app-firewall-ml-detection/internal/models" // [CRITICAL] Models live here now
 	"web-app-firewall-ml-detection/internal/service"
 	"web-app-firewall-ml-detection/internal/utils"
 )
@@ -54,7 +53,8 @@ func (h *DNSHandler) listRecords(w http.ResponseWriter, r *http.Request) {
 func (h *DNSHandler) addRecord(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 
-	var req database.DNSRecord
+	// [FIXED] Changed database.DNSRecord -> models.DNSRecord
+	var req models.DNSRecord
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -88,14 +88,13 @@ func (h *DNSHandler) updateRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// [UPDATED] Use the shared named struct
+	// [FIXED] Use models.DNSUpdateRequest
 	var req models.DNSUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteError(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	// Service handles the logic for both proxy toggle and SSL toggle
 	result, err := h.Service.UpdateRecord(recordID, userID, req)
 	if err != nil {
 		utils.WriteError(w, err.Error(), http.StatusInternalServerError)

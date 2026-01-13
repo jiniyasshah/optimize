@@ -47,7 +47,7 @@ type DNSRecord struct {
 	CreatedAt time.Time `bson:"created_at" json:"created_at"`
 }
 
-// [ADDED] This fixes your compilation error by providing a shared type
+
 type DNSUpdateRequest struct {
 	Action    string `json:"action"`
 	Proxied   bool   `json:"proxied"`

@@ -114,7 +114,6 @@ func (h *APIHandler) ReloadRules() {
 	// Helper map to find Parent Domain by ID
 	activeDomainsByID := make(map[string]models.Domain)
 
-	// A. Add Root Domains (e.g., "lemepush.tech")
 	for _, d := range domains {
 		if d.Status == "active" {
 			newDomainMap[d.Name] = d
@@ -122,12 +121,8 @@ func (h *APIHandler) ReloadRules() {
 		}
 	}
 
-	// B. [NEW] Add Subdomains (e.g., "www.lemepush.tech")
 	for _, r := range dnsRecords {
-		// Only add if the parent domain is Active
 		if parentDomain, ok := activeDomainsByID[r.DomainID]; ok {
-			// Map the subdomain (r.Name) to the Parent Domain's configuration.
-			// This ensures "www" gets the same rules/owner as the root.
 			newDomainMap[r.Name] = parentDomain
 		}
 	}

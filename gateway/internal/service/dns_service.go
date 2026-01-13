@@ -9,7 +9,7 @@ import (
 
 	"web-app-firewall-ml-detection/internal/config"
 	"web-app-firewall-ml-detection/internal/database"
-	"web-app-firewall-ml-detection/internal/models" // [ADDED]
+	"web-app-firewall-ml-detection/internal/models"
 
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -28,7 +28,7 @@ func NewDNSService(client *mongo.Client, cfg *config.Config) *DNSService {
 	}
 }
 
-func (s *DNSService) GetRecords(domainID, userID string) ([]database.DNSRecord, error) {
+func (s *DNSService) GetRecords(domainID, userID string) ([]models.DNSRecord, error) {
 	domain, err := database.GetDomainByID(s.Mongo, domainID)
 	if err != nil {
 		return nil, err
@@ -40,7 +40,7 @@ func (s *DNSService) GetRecords(domainID, userID string) ([]database.DNSRecord, 
 	return database.GetDNSRecords(s.Mongo, domainID)
 }
 
-func (s *DNSService) AddRecord(req database.DNSRecord, userID string) (*database.DNSRecord, error) {
+func (s *DNSService) AddRecord(req models.DNSRecord, userID string) (*models.DNSRecord, error) {
 	// 1. Sanitize
 	req.Name = strings.TrimSpace(req.Name)
 	req.Content = strings.TrimSpace(req.Content)
@@ -97,7 +97,7 @@ func (s *DNSService) AddRecord(req database.DNSRecord, userID string) (*database
 	}
 
 	// 8. Prepare for Storage
-	newRecord := database.DNSRecord{
+	newRecord := models.DNSRecord{
 		DomainID: req.DomainID,
 		Name:     recordName,
 		Type:     req.Type,

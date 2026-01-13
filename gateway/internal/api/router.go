@@ -15,8 +15,8 @@ func NewRouter(
 	domainHandler *DomainHandler,
 	ruleHandler *RuleHandler,
 	dnsHandler *DNSHandler,
-	logHandler *LogHandler,       // [ADDED]
-	systemHandler *SystemHandler, // [ADDED]
+	logHandler *LogHandler,       
+	systemHandler *SystemHandler, 
 ) http.Handler {
 
 	mux := http.NewServeMux()
@@ -46,11 +46,11 @@ func NewRouter(
 	mux.HandleFunc("/api/rules/custom/add", authHandler.Middleware(ruleHandler.AddCustom))
 	mux.HandleFunc("/api/rules/toggle", authHandler.Middleware(ruleHandler.Toggle))
 
-	// --- Log Routes [ADDED] ---
+	// --- Log Routes ---
 	mux.HandleFunc("/api/logs", authHandler.Middleware(logHandler.GetLogs))
 	mux.HandleFunc("/api/logs/stream", logHandler.SSEHandler) // SSE usually doesn't use standard Auth header middleware
 
-	// --- System Status Routes [ADDED] ---
+	// --- System Status Routes ---
 	// (Usually protected, but can be open if needed for status pages)
 	// mux.HandleFunc("/api/system/status", authHandler.Middleware(systemHandler.GetSystemStatus))
 
