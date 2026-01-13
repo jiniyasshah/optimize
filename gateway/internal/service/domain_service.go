@@ -54,7 +54,6 @@ func (s *DomainService) AddDomain(input models.DomainInput, userID string) (*mod
 	}
 
 	// 2. Assign 2 Random Real Nameservers
-	// Note: In Go 1.20+, global rand is seeded automatically, but preserving your logic:
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	idx1 := r.Intn(len(realNameservers))
 	idx2 := r.Intn(len(realNameservers))
@@ -77,13 +76,6 @@ func (s *DomainService) AddDomain(input models.DomainInput, userID string) (*mod
 	createdDomain, err := database.CreateDomain(s.Mongo, domain)
 	if err != nil {
 		return nil, err
-	}
-
-	// 4. Provision PowerDNS Zone (SOA and NS only)
-	err = database.CreateDNSZone(domain.Name, domain.Nameservers)
-	if err != nil {
-		// Log error but continue, or return error depending on strictness
-		fmt.Printf("ERROR: Failed to create DNS Zone: %v\n", err)
 	}
 
 	return &createdDomain, nil
@@ -124,17 +116,21 @@ func (s *DomainService) VerifyDomainOwner(domainID, userID string) (bool, map[st
 	verified := (matchedCount == len(domain.Nameservers)) && (len(domain.Nameservers) > 0)
 
 	if verified {
-		// 4. Critical: Revoke old ownership (Takeover logic)
+
 		_ = database.RevokeOldOwnership(s.Mongo, domain.Name, domain.ID)
 
-		// 5. Activate
+		err = database.CreateDNSZone(domain.Name, domain.Nameservers)
+		if err != nil {
+			return false, nil, fmt.Errorf("verification passed but DNS provisioning failed: %v", err)
+		}
+
+
 		if err := database.UpdateDomainStatus(s.Mongo, domain.ID, "active"); err != nil {
 			return false, nil, err
 		}
 		return true, nil, nil
 	}
 
-	// Return details for the UI to show what went wrong
 	details := map[string]interface{}{
 		"assigned_ns":        domain.Nameservers,
 		"found_at_registrar": foundNS,
@@ -142,7 +138,6 @@ func (s *DomainService) VerifyDomainOwner(domainID, userID string) (bool, map[st
 	return false, details, nil
 }
 
-// Helper: RDAP Lookup
 func (s *DomainService) checkRegistrarRDAP(domain string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
