@@ -16,11 +16,10 @@ func NewRuleHandler(s *service.RuleService) *RuleHandler {
 	return &RuleHandler{Service: s}
 }
 
-// [UPDATED]
+//  Reads domain_id from Query Params
 func (h *RuleHandler) GetGlobal(w http.ResponseWriter, r *http.Request) {
-	// Get Domain ID from Query Params to fetch specific policies
-	domainID := r.URL.Query().Get("domain_id")
 	userID := r.Context().Value("user_id").(string)
+	domainID := r.URL.Query().Get("domain_id")
 
 	rules, err := h.Service.GetGlobalRules(userID, domainID)
 	if err != nil {
@@ -30,10 +29,10 @@ func (h *RuleHandler) GetGlobal(w http.ResponseWriter, r *http.Request) {
 	utils.WriteSuccess(w, rules, http.StatusOK)
 }
 
-// [UPDATED]
+//  Reads domain_id from Query Params
 func (h *RuleHandler) GetCustom(w http.ResponseWriter, r *http.Request) {
-	domainID := r.URL.Query().Get("domain_id")
 	userID := r.Context().Value("user_id").(string)
+	domainID := r.URL.Query().Get("domain_id")
 
 	rules, err := h.Service.GetCustomRules(userID, domainID)
 	if err != nil {
@@ -58,6 +57,7 @@ func (h *RuleHandler) AddCustom(w http.ResponseWriter, r *http.Request) {
 	utils.WriteMessage(w, "Rule added", http.StatusCreated)
 }
 
+//  Passes entire input (including DomainID) to Service
 func (h *RuleHandler) Toggle(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 	var input models.PolicyInput
@@ -66,11 +66,10 @@ func (h *RuleHandler) Toggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Ensure DomainID is present (frontend must send it)
-	if input.DomainID == "" {
-		// Optional: fail if domain is required, or allow global toggle if business logic permits
-		// utils.WriteError(w, "Domain ID is required", http.StatusBadRequest)
-		// return
+	// Ensure ID is present
+	if input.RuleID == "" {
+		utils.WriteError(w, "Rule ID required", http.StatusBadRequest)
+		return
 	}
 
 	if err := h.Service.ToggleRule(input, userID); err != nil {

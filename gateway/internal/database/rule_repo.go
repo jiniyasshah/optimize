@@ -13,6 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+
+
 func GetRules(client *mongo.Client, filter bson.M) ([]models.WAFRule, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
@@ -34,15 +36,6 @@ func AddRule(client *mongo.Client, rule models.WAFRule) error {
 	return err
 }
 
-func UpdateRule(client *mongo.Client, rule models.WAFRule) error {
-	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
-	defer cancel()
-	filter := bson.M{"_id": rule.ID}
-	update := bson.M{"$set": rule}
-	_, err := client.Database(DBName).Collection("rules").UpdateOne(ctx, filter, update)
-	return err
-}
-
 func DeleteRule(client *mongo.Client, ruleID, ownerID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
@@ -53,26 +46,6 @@ func DeleteRule(client *mongo.Client, ruleID, ownerID string) error {
 	return nil
 }
 
-func GetPoliciesByUser(client *mongo.Client, userID string) ([]models.RulePolicy, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
-	defer cancel()
-	cursor, err := client.Database(DBName).Collection("rule_policies").Find(ctx, bson.M{"user_id": userID})
-	if err != nil { return nil, err }
-	defer cursor.Close(ctx)
-	var policies []models.RulePolicy
-	if err = cursor.All(ctx, &policies); err != nil { return nil, err }
-	return policies, nil
-}
-
-func UpsertRulePolicy(client *mongo.Client, policy models.RulePolicy) error {
-	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
-	defer cancel()
-	filter := bson.M{"user_id": policy.UserID, "rule_id": policy.RuleID, "domain_id": policy.DomainID}
-	update := bson.M{"$set": bson.M{"enabled": policy.Enabled}}
-	opts := options.Update().SetUpsert(true)
-	_, err := client.Database(DBName).Collection("rule_policies").UpdateOne(ctx, filter, update, opts)
-	return err
-}
 
 func GetAllPolicies(client *mongo.Client) ([]models.RulePolicy, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
@@ -85,13 +58,30 @@ func GetAllPolicies(client *mongo.Client) ([]models.RulePolicy, error) {
 	return policies, nil
 }
 
+
+func GetPoliciesByUser(client *mongo.Client, userID string) ([]models.RulePolicy, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
+	defer cancel()
+	cursor, err := client.Database(DBName).Collection("rule_policies").Find(ctx, bson.M{"user_id": userID})
+	if err != nil { return nil, err }
+	defer cursor.Close(ctx)
+	var policies []models.RulePolicy
+	if err = cursor.All(ctx, &policies); err != nil { return nil, err }
+	return policies, nil
+}
+
+
 func GetPoliciesByUserAndDomain(client *mongo.Client, userID, domainID string) ([]models.RulePolicy, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
 	defer cancel()
 	
 	filter := bson.M{"user_id": userID}
+	
 	if domainID != "" {
 		filter["domain_id"] = domainID
+	} else {
+		
+		filter["domain_id"] = ""
 	}
 
 	cursor, err := client.Database(DBName).Collection("rule_policies").Find(ctx, filter)
@@ -102,6 +92,18 @@ func GetPoliciesByUserAndDomain(client *mongo.Client, userID, domainID string) (
 	if err = cursor.All(ctx, &policies); err != nil { return nil, err }
 	return policies, nil
 }
+
+func UpsertRulePolicy(client *mongo.Client, policy models.RulePolicy) error {
+	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
+	defer cancel()
+
+	filter := bson.M{"user_id": policy.UserID, "rule_id": policy.RuleID, "domain_id": policy.DomainID}
+	update := bson.M{"$set": bson.M{"enabled": policy.Enabled}}
+	opts := options.Update().SetUpsert(true)
+	_, err := client.Database(DBName).Collection("rule_policies").UpdateOne(ctx, filter, update, opts)
+	return err
+}
+
 
 func compileRegexes(rules []models.WAFRule) []models.WAFRule {
 	for i := range rules {
