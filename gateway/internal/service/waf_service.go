@@ -4,6 +4,8 @@ import (
 	"log"
 	"net/url"
 	"sync"
+	"time"
+
 	"web-app-firewall-ml-detection/internal/config"
 	"web-app-firewall-ml-detection/internal/database"
 	"web-app-firewall-ml-detection/internal/models"
@@ -17,15 +19,26 @@ type policyKey struct {
 	DomainID string
 }
 
+// statsDelta holds the counts for a specific domain since the last flush
+type statsDelta struct {
+	Total   int64
+	Flagged int64
+	Blocked int64
+}
+
 type WAFService struct {
 	Mongo *mongo.Client
 	Cfg   *config.Config
 
-	// Cache
+	// Routing Cache
 	mu             sync.RWMutex
 	domainRules    map[string][]models.WAFRule
 	domainMap      map[string]models.Domain
 	globalFallback []models.WAFRule
+
+	// Stats Buffer (To prevent hitting DB on every request)
+	statsMu     sync.Mutex
+	statsBuffer map[string]*statsDelta
 }
 
 func NewWAFService(client *mongo.Client, cfg *config.Config) *WAFService {
@@ -34,10 +47,74 @@ func NewWAFService(client *mongo.Client, cfg *config.Config) *WAFService {
 		Cfg:         cfg,
 		domainRules: make(map[string][]models.WAFRule),
 		domainMap:   make(map[string]models.Domain),
+		statsBuffer: make(map[string]*statsDelta),
 	}
+	
 	s.ReloadRules() // Load immediately on startup
+	
+	// Start the background stats flusher (Runs every 5 seconds)
+	go s.startStatsFlusher()
+	
 	return s
 }
+
+// --- STATS LOGIC ---
+
+// TrackRequest buffers the request count in memory
+func (s *WAFService) TrackRequest(domainID string, isFlagged bool, isBlocked bool) {
+	s.statsMu.Lock()
+	defer s.statsMu.Unlock()
+
+	if _, exists := s.statsBuffer[domainID]; !exists {
+		s.statsBuffer[domainID] = &statsDelta{}
+	}
+
+	s.statsBuffer[domainID].Total++
+	if isFlagged {
+		s.statsBuffer[domainID].Flagged++
+	}
+	if isBlocked {
+		s.statsBuffer[domainID].Blocked++
+	}
+}
+
+func (s *WAFService) startStatsFlusher() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.flushStats()
+	}
+}
+
+func (s *WAFService) flushStats() {
+	s.statsMu.Lock()
+	if len(s.statsBuffer) == 0 {
+		s.statsMu.Unlock()
+		return
+	}
+
+	// Snapshot and clear buffer to release lock quickly
+	snapshot := make(map[string]*statsDelta)
+	for k, v := range s.statsBuffer {
+		snapshot[k] = v
+	}
+	s.statsBuffer = make(map[string]*statsDelta)
+	s.statsMu.Unlock()
+
+	// Push updates to DB
+	for domainID, delta := range snapshot {
+		if delta.Total > 0 {
+			// This calls the function we added to internal/database/domain_repo.go
+			err := database.IncrementDomainStats(s.Mongo, domainID, delta.Total, delta.Flagged, delta.Blocked)
+			if err != nil {
+				log.Printf("⚠️ Error flushing stats for domain %s: %v", domainID, err)
+			}
+		}
+	}
+}
+
+// --- ROUTING LOGIC ---
 
 // GetRoutingInfo returns the rules and domain metadata for a specific host
 func (s *WAFService) GetRoutingInfo(host string) ([]models.WAFRule, models.Domain, bool) {
@@ -50,7 +127,7 @@ func (s *WAFService) GetRoutingInfo(host string) ([]models.WAFRule, models.Domai
 	return rules, domain, rulesExist && domainExists
 }
 
-// GetTargetURL determines where to proxy the request (formerly in main.go director)
+// GetTargetURL determines where to proxy the request
 func (s *WAFService) GetTargetURL(incomingHost string) *url.URL {
 	// 1. Check DB for specific Origin Record
 	record, err := database.GetOriginRecord(s.Mongo, incomingHost)
@@ -77,7 +154,7 @@ func (s *WAFService) GetTargetURL(incomingHost string) *url.URL {
 	return u
 }
 
-// ReloadRules loads all configurations from DB (extracted from api.go)
+// ReloadRules loads all configurations from DB
 func (s *WAFService) ReloadRules() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
