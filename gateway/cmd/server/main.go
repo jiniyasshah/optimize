@@ -65,7 +65,7 @@ func main() {
 	// 6. Initialize Handlers
 	authHandler := api.NewAuthHandler(authService)
 	domainHandler := api.NewDomainHandler(domainService)
-	ruleHandler := api.NewRuleHandler(ruleService)
+	ruleHandler := api.NewRuleHandler(ruleService, wafHandler)
 	dnsHandler := api.NewDNSHandler(dnsService)
 	logHandler := api.NewLogHandler(mongoClient)
 	systemHandler := api.NewSystemHandler(mongoClient, cfg, wafHandler) // Pass wafHandler for RPM

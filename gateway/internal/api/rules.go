@@ -8,15 +8,22 @@ import (
 	"web-app-firewall-ml-detection/internal/utils"
 )
 
+type WAFEngine interface {
+	ReloadRules()
+}
+
 type RuleHandler struct {
 	Service *service.RuleService
+	WAF     WAFEngine
 }
 
-func NewRuleHandler(s *service.RuleService) *RuleHandler {
-	return &RuleHandler{Service: s}
+func NewRuleHandler(s *service.RuleService, waf WAFEngine) *RuleHandler {
+	return &RuleHandler{
+		Service: s,
+		WAF:     waf,
+	}
 }
 
-//  Reads domain_id from Query Params
 func (h *RuleHandler) GetGlobal(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 	domainID := r.URL.Query().Get("domain_id")
@@ -29,7 +36,7 @@ func (h *RuleHandler) GetGlobal(w http.ResponseWriter, r *http.Request) {
 	utils.WriteSuccess(w, rules, http.StatusOK)
 }
 
-//  Reads domain_id from Query Params
+
 func (h *RuleHandler) GetCustom(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 	domainID := r.URL.Query().Get("domain_id")
@@ -54,10 +61,12 @@ func (h *RuleHandler) AddCustom(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, "Failed to add rule", http.StatusInternalServerError)
 		return
 	}
+    go h.WAF.ReloadRules()
+
 	utils.WriteMessage(w, "Rule added", http.StatusCreated)
 }
 
-//  Passes entire input (including DomainID) to Service
+
 func (h *RuleHandler) Toggle(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 	var input models.PolicyInput
@@ -65,8 +74,7 @@ func (h *RuleHandler) Toggle(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, "Invalid input", http.StatusBadRequest)
 		return
 	}
-	
-	// Ensure ID is present
+
 	if input.RuleID == "" {
 		utils.WriteError(w, "Rule ID required", http.StatusBadRequest)
 		return
@@ -76,5 +84,8 @@ func (h *RuleHandler) Toggle(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, "Failed to toggle rule", http.StatusInternalServerError)
 		return
 	}
+
+	go h.WAF.ReloadRules()
+    
 	utils.WriteMessage(w, "Rule updated", http.StatusOK)
 }
