@@ -82,7 +82,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Domain:   cookieDomain,
 		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteNoneMode,
 	})
 	utils.WriteMessage(w, "Logged out", http.StatusOK)
 }
