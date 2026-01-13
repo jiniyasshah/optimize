@@ -16,8 +16,13 @@ func NewRuleHandler(s *service.RuleService) *RuleHandler {
 	return &RuleHandler{Service: s}
 }
 
+// [UPDATED]
 func (h *RuleHandler) GetGlobal(w http.ResponseWriter, r *http.Request) {
-	rules, err := h.Service.GetGlobalRules()
+	// Get Domain ID from Query Params to fetch specific policies
+	domainID := r.URL.Query().Get("domain_id")
+	userID := r.Context().Value("user_id").(string)
+
+	rules, err := h.Service.GetGlobalRules(userID, domainID)
 	if err != nil {
 		utils.WriteError(w, "Failed to fetch global rules", http.StatusInternalServerError)
 		return
@@ -25,9 +30,12 @@ func (h *RuleHandler) GetGlobal(w http.ResponseWriter, r *http.Request) {
 	utils.WriteSuccess(w, rules, http.StatusOK)
 }
 
+// [UPDATED]
 func (h *RuleHandler) GetCustom(w http.ResponseWriter, r *http.Request) {
+	domainID := r.URL.Query().Get("domain_id")
 	userID := r.Context().Value("user_id").(string)
-	rules, err := h.Service.GetCustomRules(userID)
+
+	rules, err := h.Service.GetCustomRules(userID, domainID)
 	if err != nil {
 		utils.WriteError(w, "Failed to fetch custom rules", http.StatusInternalServerError)
 		return
@@ -56,6 +64,13 @@ func (h *RuleHandler) Toggle(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		utils.WriteError(w, "Invalid input", http.StatusBadRequest)
 		return
+	}
+	
+	// Ensure DomainID is present (frontend must send it)
+	if input.DomainID == "" {
+		// Optional: fail if domain is required, or allow global toggle if business logic permits
+		// utils.WriteError(w, "Domain ID is required", http.StatusBadRequest)
+		// return
 	}
 
 	if err := h.Service.ToggleRule(input, userID); err != nil {

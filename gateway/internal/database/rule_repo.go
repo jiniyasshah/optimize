@@ -85,6 +85,24 @@ func GetAllPolicies(client *mongo.Client) ([]models.RulePolicy, error) {
 	return policies, nil
 }
 
+func GetPoliciesByUserAndDomain(client *mongo.Client, userID, domainID string) ([]models.RulePolicy, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
+	defer cancel()
+	
+	filter := bson.M{"user_id": userID}
+	if domainID != "" {
+		filter["domain_id"] = domainID
+	}
+
+	cursor, err := client.Database(DBName).Collection("rule_policies").Find(ctx, filter)
+	if err != nil { return nil, err }
+	defer cursor.Close(ctx)
+	
+	var policies []models.RulePolicy
+	if err = cursor.All(ctx, &policies); err != nil { return nil, err }
+	return policies, nil
+}
+
 func compileRegexes(rules []models.WAFRule) []models.WAFRule {
 	for i := range rules {
 		for j := range rules[i].Conditions {
