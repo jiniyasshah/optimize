@@ -15,7 +15,7 @@ import (
 	"web-app-firewall-ml-detection/internal/detector"
 	"web-app-firewall-ml-detection/internal/limiter"
 	"web-app-firewall-ml-detection/internal/logger"
-	"web-app-firewall-ml-detection/internal/models" // [CRITICAL] Uses new models package
+	"web-app-firewall-ml-detection/internal/models"
 	"web-app-firewall-ml-detection/internal/service"
 )
 
@@ -96,7 +96,7 @@ func (h *WAFHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	host := getHost(r)
 
-	// 1. Get Rules & Metadata from Service (Replaces old mutex lookup)
+	// 1. Get Rules & Metadata from Service
 	rules, domainInfo, configured := h.Service.GetRoutingInfo(host)
 
 	// 2. UNCONFIGURED DOMAIN CHECK
@@ -139,6 +139,11 @@ func (h *WAFHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		finalTrigger = mlTrigger
 	}
 
+	// [ADDED] Track Request Statistics
+	isFlagged := (verdict == detector.Block || verdict == detector.Monitor)
+	isBlocked := (verdict == detector.Block)
+	h.Service.TrackRequest(domainInfo.ID, isFlagged, isBlocked)
+
 	// 7. Logging & Action
 	headers := make(map[string][]string)
 	for k, v := range r.Header {
@@ -146,7 +151,6 @@ func (h *WAFHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	headers["Host"] = []string{host}
 
-	// [FIX] Use models.FullRequest (not detector.FullRequest)
 	fullReq := models.FullRequest{
 		Method:  r.Method,
 		URL:     r.URL.String(),

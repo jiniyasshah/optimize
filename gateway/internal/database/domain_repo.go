@@ -19,6 +19,12 @@ func CreateDomain(client *mongo.Client, domain models.Domain) (models.Domain, er
 	}
 	domain.CreatedAt = time.Now()
 
+	domain.Stats = models.DomainStats{
+		TotalRequests:   0,
+		FlaggedRequests: 0,
+		BlockedRequests: 0,
+	}
+
 	_, err := client.Database(DBName).Collection("domains").InsertOne(ctx, domain)
 	if err != nil {
 		return models.Domain{}, err
@@ -92,5 +98,21 @@ func RevokeOldOwnership(client *mongo.Client, domainName string, newOwnerID stri
 	defer cancel()
 	filter := bson.M{"name": domainName, "_id": bson.M{"$ne": newOwnerID}}
 	_, err := client.Database(DBName).Collection("domains").DeleteMany(ctx, filter)
+	return err
+}
+
+func IncrementDomainStats(client *mongo.Client, domainID string, total, flagged, blocked int64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	update := bson.M{
+		"$inc": bson.M{
+			"stats.total_requests":   total,
+			"stats.flagged_requests": flagged,
+			"stats.blocked_requests": blocked,
+		},
+	}
+
+	_, err := client.Database(DBName).Collection("domains").UpdateOne(ctx, bson.M{"_id": domainID}, update)
 	return err
 }

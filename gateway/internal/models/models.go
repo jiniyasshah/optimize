@@ -22,12 +22,19 @@ type UserInput struct {
 
 // --- DOMAIN MODELS ---
 
+type DomainStats struct {
+	TotalRequests   int64 `bson:"total_requests" json:"total_requests"`
+	FlaggedRequests int64 `bson:"flagged_requests" json:"flagged_requests"`
+	BlockedRequests int64 `bson:"blocked_requests" json:"blocked_requests"`
+}
+
 type Domain struct {
 	ID          string    `bson:"_id,omitempty" json:"id"`
 	UserID      string    `bson:"user_id" json:"user_id"`
 	Name        string    `bson:"name" json:"name"`
 	Nameservers []string  `bson:"nameservers" json:"nameservers"`
 	Status      string    `bson:"status" json:"status"`
+	Stats       DomainStats `bson:"stats" json:"stats"`
 	CreatedAt   time.Time `bson:"created_at" json:"created_at"`
 }
 
