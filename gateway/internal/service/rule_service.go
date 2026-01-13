@@ -16,7 +16,7 @@ func NewRuleService(client *mongo.Client) *RuleService {
 	return &RuleService{Mongo: client}
 }
 
-// [UPDATED] Helper to merge rules with policies
+// Helper to merge rules with policies
 func (s *RuleService) mergeRulesWithPolicies(rules []models.WAFRule, userID, domainID string) ([]models.WAFRule, error) {
 	// 1. Fetch the user's policies for this domain
 	policies, err := database.GetPoliciesByUserAndDomain(s.Mongo, userID, domainID)
@@ -33,31 +33,25 @@ func (s *RuleService) mergeRulesWithPolicies(rules []models.WAFRule, userID, dom
 	// 3. Update the rules with the policy status
 	for i := range rules {
 		if enabled, exists := policyMap[rules[i].ID]; exists {
+			// If a specific policy exists (user toggled it), respect that choice
 			rules[i].Enabled = enabled
 		} else {
-			// Default behavior if no policy exists:
-			// Custom rules: Default to TRUE (usually user wants them active upon creation)
-			// Global rules: Default to TRUE (standard protection) or FALSE depending on your preference.
-			// Here we default to FALSE if no policy exists, to force explicit enabling, 
-			// OR you can change this to 'true' if you want global rules auto-enabled.
-			rules[i].Enabled = false 
+			// [FIXED] Default to TRUE if no policy exists. 
+			// Global rules should be active by default until turned off.
+			rules[i].Enabled = true 
 		}
 	}
 	return rules, nil
 }
 
-// [UPDATED] Accept UserID and DomainID to determine enabled state
 func (s *RuleService) GetGlobalRules(userID, domainID string) ([]models.WAFRule, error) {
-	// 1. Get all global rules
 	rules, err := database.GetRules(s.Mongo, bson.M{"owner_id": ""})
 	if err != nil {
 		return nil, err
 	}
-	// 2. Merge with user policies
 	return s.mergeRulesWithPolicies(rules, userID, domainID)
 }
 
-// [UPDATED] Accept UserID and DomainID
 func (s *RuleService) GetCustomRules(userID, domainID string) ([]models.WAFRule, error) {
 	rules, err := database.GetRules(s.Mongo, bson.M{"owner_id": userID})
 	if err != nil {
@@ -67,7 +61,7 @@ func (s *RuleService) GetCustomRules(userID, domainID string) ([]models.WAFRule,
 }
 
 func (s *RuleService) AddCustomRule(rule models.WAFRule) error {
-	// When adding a rule, we might want to auto-enable it in policy or just set Enabled=true in DB object
+	// Custom rules are enabled by default upon creation
 	rule.Enabled = true 
 	return database.AddRule(s.Mongo, rule)
 }
@@ -80,7 +74,7 @@ func (s *RuleService) ToggleRule(input models.PolicyInput, userID string) error 
 	policy := models.RulePolicy{
 		UserID:   userID,
 		RuleID:   input.RuleID,
-		DomainID: input.DomainID, // Ensure this is passed from frontend
+		DomainID: input.DomainID,
 		Enabled:  input.Enabled,
 	}
 	return database.UpsertRulePolicy(s.Mongo, policy)
