@@ -31,11 +31,16 @@ func NewNotificationService(mailer *utils.EmailSender, client *mongo.Client) *No
 	}
 }
 
+// SendSignupVerification sends the verification link to new users.
+// Sender Name: "Minishield Verification"
 func (s *NotificationService) SendSignupVerification(email, name, token string) {
 	subject := "Action Required: Verify your MiniShield Account"
-	verifyLink := fmt.Sprintf("https://minishield.tech/api/auth/verify?token=%s", token)
 
-	body := fmt.Sprintf(`
+	// [IMPORTANT] Link points to the BACKEND API first for verification
+	verifyLink := fmt.Sprintf("https://api.minishield.tech/api/auth/verify?token=%s", token)
+
+	// 1. HTML Version (Visual)
+	htmlBody := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
 			<div style="background-color: #f4f4f4; padding: 20px; text-align: center;">
 				<h2 style="color: #333; margin:0;">Welcome to MiniShield</h2>
@@ -60,13 +65,19 @@ func (s *NotificationService) SendSignupVerification(email, name, token string) 
 		</div>
 	`, name, verifyLink, verifyLink, verifyLink)
 
+	// 2. Text Version (For Spam Filters & Apple Watch)
+	textBody := fmt.Sprintf("Hi %s,\n\nWelcome to MiniShield.\n\nPlease verify your account by clicking this link:\n%s\n\nIf you did not create an account, please ignore this email.", name, verifyLink)
+
 	// Send asynchronously
 	go func() {
 		// Log for debugging
-		fmt.Printf("📧 Sending verification link to %s\n", email)
+		log.Printf("📧 Sending verification link to %s...", email)
 		
-		if err := s.Mailer.Send(email, subject, body, "Minishield Verification"); err != nil {
+		// [REQUIRES email.go UPDATE] We now pass htmlBody AND textBody
+		if err := s.Mailer.Send(email, subject, htmlBody, textBody, "Minishield Verification"); err != nil {
 			log.Printf("[EMAIL ERROR] Failed to send verification to %s: %v", email, err)
+		} else {
+			log.Printf("✅ Verification email sent to %s", email)
 		}
 	}()
 }
@@ -87,7 +98,6 @@ func (s *NotificationService) NotifyAttack(userID, domainName, attackType, ip st
 	// 2. Run Asynchronously (Don't slow down the WAF)
 	go func() {
 		// A. Lookup User Email
-		// We only have the UserID in the WAF Handler, so we must fetch the email.
 		user, err := database.GetUserByID(s.Mongo, userID)
 		if err != nil {
 			log.Printf("[EMAIL ERROR] Could not find user %s for alert: %v", userID, err)
@@ -96,7 +106,9 @@ func (s *NotificationService) NotifyAttack(userID, domainName, attackType, ip st
 
 		// B. Prepare Email Content
 		subject := fmt.Sprintf("🚨 Security Alert: Attack blocked on %s", domainName)
-		body := fmt.Sprintf(`
+		
+		// HTML Version
+		htmlBody := fmt.Sprintf(`
 			<div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #d32f2f;">
 				<div style="background-color: #d32f2f; padding: 15px; text-align: center;">
 					<h2 style="color: white; margin: 0;">Malicious Activity Blocked</h2>
@@ -128,8 +140,11 @@ func (s *NotificationService) NotifyAttack(userID, domainName, attackType, ip st
 			</div>
 		`, domainName, attackType, ip, time.Now().Format(time.RFC1123))
 
-		// C. Send Email
-		if err := s.Mailer.Send(user.Email, subject, body, "Minishield Security"); err != nil {
+		// [NEW] Text Version (The 4th Argument)
+		textBody := fmt.Sprintf("🚨 Security Alert\n\nMalicious activity blocked on %s.\n\nAttack Type: %s\nSource IP: %s\nTime: %s\n\nNo action is required.", domainName, attackType, ip, time.Now().Format(time.RFC1123))
+
+		// C. Send Email (Pass 5 Arguments: email, subject, html, text, senderName)
+		if err := s.Mailer.Send(user.Email, subject, htmlBody, textBody, "Minishield Security"); err != nil {
 			log.Printf("[EMAIL ERROR] Failed to send alert to %s: %v", user.Email, err)
 		} else {
 			log.Printf("📧 Alert sent to %s regarding %s", user.Email, domainName)

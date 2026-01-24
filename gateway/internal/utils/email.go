@@ -23,6 +23,7 @@ type BrevoRequest struct {
 	To          []To      `json:"to"`
 	Subject     string    `json:"subject"`
 	HtmlContent string    `json:"htmlContent"`
+	TextContent string    `json:"textContent"`
 }
 
 type Sender struct {
@@ -34,18 +35,18 @@ type To struct {
 	Email string `json:"email"`
 }
 
-func (s *EmailSender) Send(to, subject, body, senderName string) error {
-	// 1. Prepare Payload
+func (s *EmailSender) Send(to, subject, htmlBody, textBody, senderName string) error { // Added textBody param
 	payload := BrevoRequest{
 		Sender: Sender{
 			Name:  senderName,
-			Email: s.cfg.SMTPUser, // We use this config field for the Sender Email
+			Email: s.cfg.SMTPUser,
 		},
 		To: []To{
 			{Email: to},
 		},
 		Subject:     subject,
-		HtmlContent: body,
+		HtmlContent: htmlBody,
+		TextContent: textBody, // <--- Send the plain text version
 	}
 
 	jsonData, err := json.Marshal(payload)
