@@ -31,22 +31,22 @@ type policyKey struct {
 
 type WAFHandler struct {
 	Service     *service.WAFService
+	Notifier    *service.NotificationService // [NEW] Added this field
 	Proxy       *httputil.ReverseProxy
 	RateLimiter *limiter.RateLimiter
 	Cfg         *config.Config
 
 	UnconfiguredPage []byte
 
-	// --- [NEW] RULES CACHE ---
-	// We move the cache here so the Proxy is the "Source of Truth" for active rules
+	// Rules Cache
 	rulesMutex     sync.RWMutex
 	domainRules    map[string][]models.WAFRule
 	domainMap      map[string]models.Domain
 	globalFallback []models.WAFRule
 
 	// Stats for System Status
-	reqCount uint64 // Live counter
-	rpm      uint64 // Calculated RPM (Requests Per Minute)
+	reqCount uint64
+	rpm      uint64
 }
 
 func NewWAFHandler(svc *service.WAFService, proxy *httputil.ReverseProxy, rl *limiter.RateLimiter, cfg *config.Config, page404 []byte) *WAFHandler {
@@ -61,7 +61,7 @@ func NewWAFHandler(svc *service.WAFService, proxy *httputil.ReverseProxy, rl *li
 		domainMap:   make(map[string]models.Domain),
 	}
 
-	// [NEW] Load rules immediately on startup
+	// Load rules immediately on startup
 	h.ReloadRules()
 
 	// Start Background Stats Ticker for RPM calculation
@@ -70,13 +70,11 @@ func NewWAFHandler(svc *service.WAFService, proxy *httputil.ReverseProxy, rl *li
 	return h
 }
 
-// [NEW] ReloadRules fetches latest config from DB and updates the memory cache
-// This satisfies the WAFEngine interface required by RuleHandler
+// ReloadRules fetches latest config from DB and updates the memory cache
 func (h *WAFHandler) ReloadRules() {
 	h.rulesMutex.Lock()
 	defer h.rulesMutex.Unlock()
 
-	// Use the Mongo client from the Service
 	client := h.Service.Mongo
 
 	// 1. Fetch All Data
@@ -239,8 +237,7 @@ func (h *WAFHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	host := getHost(r)
 
-	// [UPDATED] 1. Get Rules & Metadata from MEMORY CACHE (Fast!)
-	// Instead of calling h.Service.GetRoutingInfo(host)
+	// 1. Get Rules & Metadata from MEMORY CACHE
 	h.rulesMutex.RLock()
 	domainInfo, configured := h.domainMap[host]
 	rules := h.domainRules[host]
@@ -309,6 +306,12 @@ func (h *WAFHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case detector.Block:
 		log.Printf("⛔ BLOCKED IP: %s | Host: %s | Reason: %s", clientIP, host, reason)
 		logger.LogAttack(domainInfo.UserID, domainInfo.ID, clientIP, r.URL.Path, reason, "Blocked", source, triggeredTags, ruleScore, confidence, fullReq, finalTrigger)
+		
+		// [NEW] Trigger Notification
+		if h.Notifier != nil {
+			h.Notifier.NotifyAttack(domainInfo.UserID, host, reason, clientIP)
+		}
+		
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte("WAF Blocked: " + reason))
 

@@ -22,6 +22,13 @@ type Config struct {
 	DNSPass string
 	DNSHost string
 	DNSName string
+	
+	// Email Settings
+    SMTPHost     string
+    SMTPPort     string
+    SMTPUser     string
+    SMTPPass     string
+    SMTPFrom     string	
 
 	// Security
 	JWTSecret string
@@ -54,6 +61,11 @@ func Load() *Config {
 		DNSPass: getEnv("DNS_DB_PASS", "pdns_password"),
 		DNSHost: getEnv("DNS_DB_HOST", "dns_sql_db"),
 		DNSName: getEnv("DNS_DB_NAME", "powerdns"),
+
+		SMTPHost: getEnv("SMTP_HOST", "smtp.gmail.com"),
+        SMTPPort: getEnv("SMTP_PORT", "587"),
+        SMTPUser: getEnv("SMTP_USER", "your-email@gmail.com"),
+        SMTPPass: getEnv("SMTP_PASS", "your-app-password"),
 
 		JWTSecret: getEnv("JWT_SECRET", "super_secret_waf_key_change_me"),
 	}

@@ -16,6 +16,7 @@ import (
 	"web-app-firewall-ml-detection/internal/logger"
 	"web-app-firewall-ml-detection/internal/proxy"
 	"web-app-firewall-ml-detection/internal/service"
+	"web-app-firewall-ml-detection/internal/utils" // [NEW] Import Utils
 
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -41,6 +42,10 @@ func main() {
 	logger.Init(mongoClient, "waf")
 	rateLimiter := limiter.New(100, 1*time.Minute)
 
+	// [NEW] Initialize Email & Notification Service
+	emailSender := utils.NewEmailSender(cfg)
+	notificationService := service.NewNotificationService(emailSender, mongoClient)
+
 	page404, _ := os.ReadFile("pages/404.html")
 	if len(page404) == 0 {
 		page404 = []byte("404 Not Found")
@@ -52,7 +57,8 @@ func main() {
 	}
 
 	// 4. Initialize Services
-	authService := service.NewAuthService(mongoClient, cfg)
+	// [UPDATED] Pass notificationService to AuthService
+	authService := service.NewAuthService(mongoClient, cfg, notificationService) 
 	wafService := service.NewWAFService(mongoClient, cfg)
 	domainService := service.NewDomainService(mongoClient)
 	ruleService := service.NewRuleService(mongoClient)
@@ -61,6 +67,9 @@ func main() {
 	// 5. Initialize Proxy
 	reverseProxy := proxy.NewReverseProxy(wafService, page502)
 	wafHandler := proxy.NewWAFHandler(wafService, reverseProxy, rateLimiter, cfg, page404)
+	
+	// [NEW] Inject Notifier into WAF Handler for security alerts
+	wafHandler.Notifier = notificationService
 
 	// 6. Initialize Handlers
 	authHandler := api.NewAuthHandler(authService)
@@ -68,7 +77,7 @@ func main() {
 	ruleHandler := api.NewRuleHandler(ruleService, wafHandler)
 	dnsHandler := api.NewDNSHandler(dnsService)
 	logHandler := api.NewLogHandler(mongoClient)
-	systemHandler := api.NewSystemHandler(mongoClient, cfg, wafHandler) // Pass wafHandler for RPM
+	systemHandler := api.NewSystemHandler(mongoClient, cfg, wafHandler)
 
 	// 7. Router Setup
 	mainRouter := api.NewRouter(cfg, wafHandler, authHandler, domainHandler, ruleHandler, dnsHandler, logHandler, systemHandler)
@@ -78,6 +87,7 @@ func main() {
 		if host == "api.minishield.tech" || host == "minishield.tech" {
 			return nil
 		}
+		// Check if the host is configured in our WAF
 		_, _, exists := wafService.GetRoutingInfo(host)
 		if exists {
 			return nil

@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"time"
 	"web-app-firewall-ml-detection/internal/models"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -47,4 +48,27 @@ func GetUserByID(client *mongo.Client, id string) (*models.User, error) {
 		return nil, err
 	}
 	return &user, nil
+}
+
+func VerifyUserToken(client *mongo.Client, token string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	filter := bson.M{"verification_token": token}
+	update := bson.M{
+		"$set": bson.M{
+			"is_verified":        true,
+			"verification_token": "", // Clear the token after use
+		},
+	}
+
+	result, err := client.Database(DBName).Collection("users").UpdateOne(ctx, filter, update)
+	if err != nil {
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return errors.New("invalid or expired verification token")
+	}
+
+	return nil
 }

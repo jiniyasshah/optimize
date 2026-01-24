@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"web-app-firewall-ml-detection/internal/config"
@@ -14,12 +15,17 @@ import (
 )
 
 type AuthService struct {
-	Mongo *mongo.Client
-	Cfg   *config.Config
+	Mongo    *mongo.Client
+	Cfg      *config.Config
+	Notifier *NotificationService 
 }
 
-func NewAuthService(client *mongo.Client, cfg *config.Config) *AuthService {
-	return &AuthService{Mongo: client, Cfg: cfg}
+func NewAuthService(client *mongo.Client, cfg *config.Config, notifier *NotificationService) *AuthService {
+	return &AuthService{
+		Mongo:    client,
+		Cfg:      cfg,
+		Notifier: notifier,
+	}
 }
 
 func (s *AuthService) Register(input models.UserInput) error {
@@ -27,18 +33,37 @@ func (s *AuthService) Register(input models.UserInput) error {
 	if err != nil {
 		return err
 	}
+
+	// Generate a simple token (current timestamp in nanos)
+	token := fmt.Sprintf("%d", time.Now().UnixNano())
+
 	user := models.User{
-		Name:     input.Name,
-		Email:    input.Email,
-		Password: string(hashed),
+		Name:              input.Name,
+		Email:             input.Email,
+		Password:          string(hashed),
+		IsVerified:        false, 
+		VerificationToken: token, 
 	}
-	return database.CreateUser(s.Mongo, user)
+
+	if err := database.CreateUser(s.Mongo, user); err != nil {
+		return err
+	}
+
+	// Send Verification Email
+	s.Notifier.SendSignupVerification(user.Email, user.Name, token)
+
+	return nil
 }
 
 func (s *AuthService) Login(email, password string) (string, *models.User, error) {
 	user, err := database.GetUserByEmail(s.Mongo, email)
 	if err != nil {
 		return "", nil, errors.New("invalid credentials")
+	}
+
+	// Check Verification Status
+	if !user.IsVerified {
+		return "", nil, errors.New("email not verified. please check your inbox")
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
@@ -58,6 +83,11 @@ func (s *AuthService) Login(email, password string) (string, *models.User, error
 	}
 
 	return tokenString, user, nil
+}
+
+// Logic to handle the click
+func (s *AuthService) VerifyEmail(token string) error {
+	return database.VerifyUserToken(s.Mongo, token)
 }
 
 func (s *AuthService) GetUser(userID string) (*models.User, error) {

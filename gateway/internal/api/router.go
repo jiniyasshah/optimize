@@ -30,6 +30,7 @@ func NewRouter(
 	mux.HandleFunc("/api/auth/logout", authHandler.Logout)
 	mux.HandleFunc("/api/system/status", systemHandler.GetSystemStatus)
 	mux.HandleFunc("/api/auth/check", authHandler.Middleware(authHandler.CheckAuth))
+	mux.HandleFunc("/api/auth/verify", authHandler.VerifyEmail)
 
 
 	// --- Domain Routes ---
