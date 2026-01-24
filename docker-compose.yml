@@ -21,8 +21,6 @@ services:
       - DNS_DB_NAME=${DNS_DB_NAME}
       - FRONTEND_URL=${FRONTEND_URL}
       - WAF_PUBLIC_IP=${WAF_PUBLIC_IP}
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_PORT=${SMTP_PORT}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
     volumes:
