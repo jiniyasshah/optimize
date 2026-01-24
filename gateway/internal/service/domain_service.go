@@ -180,10 +180,39 @@ func (s *DomainService) checkRegistrarRDAP(domain string) ([]string, error) {
 	return nameservers, nil
 }
 
+
 func getRootDomain(domain string) string {
 	parts := strings.Split(domain, ".")
 	if len(parts) < 2 {
 		return domain
 	}
 	return parts[len(parts)-2] + "." + parts[len(parts)-1]
+}
+
+func (s *DomainService) DeleteDomain(domainID, userID string) error {
+	// 1. Fetch & Verify Ownership
+	domain, err := database.GetDomainByID(s.Mongo, domainID)
+	if err != nil {
+		return errors.New("domain not found")
+	}
+	if domain.UserID != userID {
+		return errors.New("unauthorized")
+	}
+
+	// 2. If Active/Verified, Remove from PowerDNS 
+	if domain.Status == "active" {
+		if err := database.DeleteDNSZone(domain.Name); err != nil {
+			return fmt.Errorf("failed to delete from DNS backend: %v", err)
+		}
+	}
+
+	if err := database.DeleteDNSRecordsByDomainID(s.Mongo, domainID); err != nil {
+		return fmt.Errorf("failed to delete associated records: %v", err)
+	}
+
+	if err := database.DeleteDomain(s.Mongo, domainID); err != nil {
+		return fmt.Errorf("failed to delete domain: %v", err)
+	}
+
+	return nil
 }

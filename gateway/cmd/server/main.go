@@ -58,7 +58,7 @@ func main() {
 	ruleService := service.NewRuleService(mongoClient)
 	dnsService := service.NewDNSService(mongoClient, cfg)
 
-	// 5. Initialize Proxy (Created earlier so SystemHandler can use it)
+	// 5. Initialize Proxy
 	reverseProxy := proxy.NewReverseProxy(wafService, page502)
 	wafHandler := proxy.NewWAFHandler(wafService, reverseProxy, rateLimiter, cfg, page404)
 

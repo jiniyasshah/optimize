@@ -118,3 +118,10 @@ func GetAllDNSRecords(client *mongo.Client) ([]models.DNSRecord, error) {
 	if err = cursor.All(ctx, &records); err != nil { return nil, err }
 	return records, nil
 }
+
+func DeleteDNSRecordsByDomainID(client *mongo.Client, domainID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
+	defer cancel()
+	_, err := client.Database(DBName).Collection("dns_records").DeleteMany(ctx, bson.M{"domain_id": domainID})
+	return err
+}

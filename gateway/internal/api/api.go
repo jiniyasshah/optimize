@@ -38,13 +38,9 @@ type APIHandler struct {
 	rulesMutex  sync.RWMutex
 	domainRules map[string][]models.WAFRule
 
-	// [NEW] Domain Metadata Cache (Host -> Domain Info)
-	// This allows WAF to know UserID/DomainID without querying DB every request
 	domainMap map[string]models.Domain
-
 	globalFallback []models.WAFRule
 
-	// Stats
 	reqCount uint64
 	rpm      uint64
 }
@@ -59,7 +55,7 @@ func NewAPIHandler(client *mongo.Client, proxy *httputil.ReverseProxy, limiter *
 		WafPublicIP:      wafPublicIP,
 		UnconfiguredPage: unconfiguredPage,
 		domainRules:      make(map[string][]models.WAFRule),
-		domainMap:        make(map[string]models.Domain), // [NEW]
+		domainMap:        make(map[string]models.Domain), 
 	}
 
 	h.ReloadRules()
@@ -77,8 +73,6 @@ func (h *APIHandler) WriteJSONError(w http.ResponseWriter, message string, code 
 	})
 }
 
-// ReloadRules: Merges Rules and Updates Domain Cache
-// ... (lines 1-76 remain the same)
 
 // ReloadRules: Merges Rules and Updates Domain Cache
 func (h *APIHandler) ReloadRules() {
@@ -101,7 +95,6 @@ func (h *APIHandler) ReloadRules() {
 		log.Printf("[ERROR] ReloadRules: Failed to load domains: %v", err)
 		return
 	}
-	// [NEW] Fetch all DNS Records (Subdomains)
 	dnsRecords, err := database.GetAllDNSRecords(h.MongoClient)
 	if err != nil {
 		log.Printf("[ERROR] ReloadRules: Failed to load dns records: %v", err)
@@ -174,7 +167,7 @@ func (h *APIHandler) ReloadRules() {
 		// Map rules to the Root Domain Name
 		newDomainRules[d.Name] = effective
 
-		// [NEW] Also map rules to all Subdomains of this domain
+	
 		// This ensures "www" gets the same firewall rules as root.
 		for _, r := range dnsRecords {
 			if r.DomainID == d.ID {

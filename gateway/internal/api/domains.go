@@ -48,7 +48,6 @@ func (h *DomainHandler) AddDomain(w http.ResponseWriter, r *http.Request) {
 func (h *DomainHandler) Verify(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 
-	// We expect ?id=<domain_id> query param like the original code
 	domainID := r.URL.Query().Get("id")
 	if domainID == "" {
 		utils.WriteError(w, "Missing domain id", http.StatusBadRequest)
@@ -76,4 +75,23 @@ func (h *DomainHandler) Verify(w http.ResponseWriter, r *http.Request) {
 			"details": details,
 		})
 	}
+}
+
+func (h *DomainHandler) DeleteDomain(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	
+	domainID := r.URL.Query().Get("id")
+	if domainID == "" {
+		utils.WriteError(w, "Missing domain id", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.Service.DeleteDomain(domainID, userID); err != nil {
+		utils.WriteError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	utils.WriteSuccess(w, map[string]string{
+		"message": "Domain and all associated records deleted successfully",
+	}, http.StatusOK)
 }

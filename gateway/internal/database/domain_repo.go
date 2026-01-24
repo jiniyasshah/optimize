@@ -116,3 +116,10 @@ func IncrementDomainStats(client *mongo.Client, domainID string, total, flagged,
 	_, err := client.Database(DBName).Collection("domains").UpdateOne(ctx, bson.M{"_id": domainID}, update)
 	return err
 }
+
+func DeleteDomain(client *mongo.Client, domainID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), TimeoutDuration)
+	defer cancel()
+	_, err := client.Database(DBName).Collection("domains").DeleteOne(ctx, bson.M{"_id": domainID})
+	return err
+}

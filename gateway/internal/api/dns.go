@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"web-app-firewall-ml-detection/internal/models" // [CRITICAL] Models live here now
+	"web-app-firewall-ml-detection/internal/models"
 	"web-app-firewall-ml-detection/internal/service"
 	"web-app-firewall-ml-detection/internal/utils"
 )
