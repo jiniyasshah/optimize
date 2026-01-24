@@ -31,33 +31,40 @@ func NewNotificationService(mailer *utils.EmailSender, client *mongo.Client) *No
 	}
 }
 
-// SendSignupVerification sends the OTP/Token to new users.
-// Sender Name: "Minishield Verification"
 func (s *NotificationService) SendSignupVerification(email, name, token string) {
-	subject := "Verify your MiniShield Account"
-	
-	// HTML Body for the email
+	subject := "Action Required: Verify your MiniShield Account"
+	verifyLink := fmt.Sprintf("https://minishield.tech/api/auth/verify?token=%s", token)
+
 	body := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
 			<div style="background-color: #f4f4f4; padding: 20px; text-align: center;">
-				<h1 style="color: #333;">Welcome to MiniShield</h1>
+				<h2 style="color: #333; margin:0;">Welcome to MiniShield</h2>
 			</div>
 			<div style="padding: 20px; border: 1px solid #ddd; border-top: none;">
 				<p>Hi %s,</p>
-				<p>Thank you for signing up. To complete your registration and activate your account, please use the verification token below:</p>
+				<p>Thank you for registering. Please click the button below to verify your email address and activate your account:</p>
 				
-				<div style="background-color: #e8f0fe; padding: 15px; text-align: center; border-radius: 5px; margin: 20px 0;">
-					<span style="font-size: 24px; font-weight: bold; color: #1a73e8; letter-spacing: 2px;">%s</span>
+				<div style="text-align: center; margin: 30px 0;">
+					<a href="%s" style="background-color: #007bff; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+						Verify Account
+					</a>
 				</div>
 
-				<p>If you did not create an account, please ignore this email.</p>
-				<p>Best regards,<br>The MiniShield Team</p>
+				<p style="font-size: 13px; color: #666;">
+					Or copy and paste this link into your browser:<br>
+					<a href="%s" style="color: #007bff;">%s</a>
+				</p>
+				
+				<p>If you did not create an account, you can safely ignore this email.</p>
 			</div>
 		</div>
-	`, name, token)
+	`, name, verifyLink, verifyLink, verifyLink)
 
-	// Send asynchronously to avoid blocking the API response
+	// Send asynchronously
 	go func() {
+		// Log for debugging
+		fmt.Printf("📧 Sending verification link to %s\n", email)
+		
 		if err := s.Mailer.Send(email, subject, body, "Minishield Verification"); err != nil {
 			log.Printf("[EMAIL ERROR] Failed to send verification to %s: %v", email, err)
 		}
